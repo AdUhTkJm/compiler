@@ -1,0 +1,6 @@
+*.sh
+.vscode/
+assem.s
+test.txt
+com
+tmp

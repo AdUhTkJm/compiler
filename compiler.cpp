@@ -8,7 +8,7 @@ int main() {
     std::ofstream ofs("assem.s");
     
     for (std::string str; ifs >> str; tin.tokenize(str));
-    std::cout << "Tokenising successful.\n";
+    std::cout << "Tokenisation successful.\n";
 
     auto ast = parse();
     std::cout << "Parsing successful.\n";
@@ -16,7 +16,6 @@ int main() {
     auto ir = generate(ast);
     std::cout << "Generation successful.\n";
 
-    print_ir(ir);
     assemble(ofs, ir);
     std::cout << "Assembly successful.\n";
     return 0;

@@ -3,9 +3,16 @@
 #include <vector>
 
 enum token_type {
-    K_NUM,          // number, eg 0
+    K_NUM,          // number literal
     K_PLUS,         // +
     K_MINUS,        // -
+    K_MUL,          // *
+    K_DIV,          // /
+    K_MOD,          // %
+    K_SEMICOLON,    // ;
+    K_RET,          // return
+    K_LBRACKET,     // (
+    K_RBRACKET,     // )
 };
 
 struct token {
@@ -33,5 +40,6 @@ extern tstream tin;
 // Consumes the next token and sees if it is t. Throws if not.
 void expect(token_type t);
 
-// Peeks the next token and sees if it is t. Throws if not.
-void test(token_type t);
+// Peeks the next token and sees if it is t.
+// If it is, then consume it.
+bool test(token_type t);

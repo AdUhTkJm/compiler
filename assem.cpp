@@ -5,6 +5,8 @@
 #include <iostream>
 #include <algorithm>
 
+using fmt::format;
+
 // There are 7 registers for x86 that we can use.
 // They are r10 to r15 and rbx.
 reg* used[7] = { 0 };
@@ -32,15 +34,20 @@ void assign(reg* a) {
 void tidy_register(std::vector<ir>& irs) {
     std::vector<reg*> regs;
     // instruction counter
-    int ic;
+    // starts at 1, so that !first will not fail
+    int ic = 1;
 
     for (int i = 0; i < irs.size(); i++, ic++) {
         auto x = irs[i];
 
-        if (x.a0 && !x.a0->first)
+        if (x.a0 && !x.a0->first) {
             regs.push_back(x.a0);
+            x.a0->first = ic;
+        }
         
         // a1 and a2 never gets newly defined
+        if (x.a0)
+            x.a0->last = std::max(x.a0->last, ic);
         if (x.a1)
             x.a1->last = std::max(x.a1->last, ic);
         if (x.a2)
@@ -48,10 +55,6 @@ void tidy_register(std::vector<ir>& irs) {
     }
 
     std::for_each(regs.begin(), regs.end(), assign);
-}
-
-void emit(std::ostream& os, const char* str, reg* r1, reg* r2) {
-    os << "\t" << fmt::format(str, regs[r1->real], regs[r2->real]) << "\n";
 }
 
 void assemble(std::ostream& os, std::vector<ir>& irs) {
@@ -63,20 +66,42 @@ void assemble(std::ostream& os, std::vector<ir>& irs) {
     "\tmov rbp, rsp\n";
     tidy_register(irs);
     for (auto x : irs) {
+        auto r0 = regs[x.a0 ? x.a0->real : 0];
+        auto r1 = regs[x.a1 ? x.a1->real : 0];
+        auto r2 = regs[x.a2 ? x.a2->real : 0];
+        
         switch (x.ty) {
         case I_IMM:
-            os << fmt::format("\tmov {}, {}\n", regs[x.a0->real], x.imm);
+            os << format("\tmov {}, {}\n", r0, x.imm);
             break;
         case I_ADD:
-            emit(os, "add {}, {}", x.a0, x.a1);
+            os << format("\tadd {}, {}\n", r0, r1);
             break;
         case I_SUB:
-            emit(os, "sub {}, {}", x.a0, x.a1);
+            os << format("\tsub {}, {}\n", r0, r1);
             break;
+        case I_IMUL:
+            os << format("\tmov rax, {}\n", r0)
+            << format("\timul {}\n", r1)
+            << format("\tmov {}, rax\n", r0);
+            break;
+        case I_IDIV:
+            os << format("\tmov rax, {}\n", r0)
+            << "\tcqo\n"
+            << format("\tidiv {}\n", r1)
+            << format("\tmov {}, rax\n", r0);
+            break;
+        case I_MOD:
+            os << format("\tmov rax, {}\n", r0)
+            << "\tcqo\n"
+            << format("\tidiv {}\n", r1)
+            << format("\tmov {}, rdx\n", r0);
+            break;
+        case I_RET:
+            os << format("\tmov rax, {}\n", r0) << 
+            "\tmov rsp, rbp\n"
+            "\tpop rbp\n"
+            "\tret\n";
         }
     }
-    os <<
-    "\tmov rsp, rbp\n"
-    "\tpop rbp\n"
-    "\tret\n";
 }

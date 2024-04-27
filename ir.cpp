@@ -6,6 +6,9 @@
 std::map<node_type, ir_type> opmap {
     MAPPED(N_PLUS, I_ADD),
     MAPPED(N_MINUS, I_SUB),
+    MAPPED(N_MUL, I_IMUL),
+    MAPPED(N_DIV, I_IDIV),
+    MAPPED(N_MOD, I_MOD),
 };
 
 ir::ir(ir_type ty, int imm, reg* a0):
@@ -28,13 +31,25 @@ reg* gen_imm(node* ast) {
 }
 
 reg* gen_expr(node* ast) {
+    // We cannot jump past initialisation of these variables in
+    // switch(), so we declare them here.
+    reg *a0, *a1, *a2;
+
     switch (ast->ty) {
     case N_NUM:
         return gen_imm(ast);
+    case N_RET:
+        a0 = gen_expr(ast->lhs);
+
+        PUSH(ir(I_RET, a0));
+        return a0;
     case N_PLUS:
     case N_MINUS:
-        reg* a0 = gen_expr(ast->lhs);
-        reg* a1 = gen_expr(ast->rhs);
+    case N_MUL:
+    case N_DIV:
+    case N_MOD:
+        a0 = gen_expr(ast->lhs);
+        a1 = gen_expr(ast->rhs);
         
         PUSH(ir(opmap[ast->ty], a0, a1));
         return a0;

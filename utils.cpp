@@ -20,5 +20,16 @@ void print_ir(std::vector<ir>& irs) {
         case I_SUB:
             std::cout << fmt::format("SUB #{} #{}\n", x.a0->ind, x.a1->ind);
             break;
+        case I_IMUL:
+            std::cout << fmt::format("MUL #{} #{}\n", x.a0->ind, x.a1->ind);
+            break;
+        case I_IDIV:
+            std::cout << fmt::format("DIV #{} #{}\n", x.a0->ind, x.a1->ind);
+            break;
+        case I_MOD:
+            std::cout << fmt::format("MOD #{} #{}\n", x.a0->ind, x.a1->ind);
+            break;
+        default:
+            std::cout << "UNKNOWN\n";
         }
 }

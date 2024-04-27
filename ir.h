@@ -3,8 +3,12 @@
 
 enum ir_type {
     I_IMM,          // immediate value
-    I_ADD,          // ADD
-    I_SUB,          // SUB
+    I_ADD,          // add
+    I_SUB,          // sub
+    I_IMUL,         // imul
+    I_IDIV,         // cqo; idiv; rax
+    I_MOD,          // cqo; idiv; rdx
+    I_RET,          // mov rax, {}; epilogue
 };
 
 // Note: register is a keyword

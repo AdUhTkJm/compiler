@@ -18,6 +18,13 @@ void tstream::tokenize(const std::string& what) {
             
             if (str == "return")
                 tokens.push_back({ K_RET });
+            else if (str == "int")
+                tokens.push_back({ K_INT });
+            else {
+                token t { K_IDENT };
+                t.ident = str;
+                tokens.push_back(t);
+            }
             continue;
         }
 
@@ -47,6 +54,14 @@ void tstream::tokenize(const std::string& what) {
             tokens.push_back({ K_LBRACKET });
         if (x == ')')
             tokens.push_back({ K_RBRACKET });
+        if (x == '{')
+            tokens.push_back({ K_LBRACE });
+        if (x == '}')
+            tokens.push_back({ K_RBRACE });
+        if (x == ',')
+            tokens.push_back({ K_COMMA });
+        if (x == '=')
+            tokens.push_back({ K_ASSIGN });
         i++;
     }
 }
@@ -58,7 +73,7 @@ void tstream::_print() {
 
 void expect(token_type t) {
     if (tin.consume().ty != t)
-        throw unexpected_token();
+        throw unexpected_token(std::string("Expected ") + std::to_string((int) t));
 }
 
 bool test(token_type t) {

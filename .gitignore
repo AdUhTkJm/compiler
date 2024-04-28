@@ -2,5 +2,6 @@
 .vscode/
 assem.s
 test.txt
+test.c
 com
 tmp

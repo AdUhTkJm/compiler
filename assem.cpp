@@ -12,6 +12,12 @@ using fmt::format;
 reg* used[7] = { 0 };
 const char* regs[] = { "r10", "r11", "r12", "r13", "r14", "r15", "rbx" };
 
+// Round val up to the smallest integer that is divisible by x
+// and larger than val.
+int round_up(int val, int x) {
+    return ceil(1.0 * val / x) * x;
+}
+
 void assign(reg* a) {
     if (!a)
         return;
@@ -57,13 +63,40 @@ void tidy_register(std::vector<ir>& irs) {
     std::for_each(regs.begin(), regs.end(), assign);
 }
 
-void assemble(std::ostream& os, std::vector<ir>& irs) {
-    os <<
-    ".intel_syntax noprefix\n"
-    ".globl main\n"
-    "main:\n"
-    "\tpush rbp\n"
-    "\tmov rbp, rsp\n";
+void assemble_var(std::ostream& os) {
+    for (auto x : global->vars) {
+        // All explicitly initialised variables should go into data segment
+        // But we do not support explicit initialisation yet
+        // So we put everything in .bss, which is zero-initialised
+        os << ".bss\n";
+        os << format("{}:\n\t.zero {}\n", x->name, x->ty.sz);
+    }
+}
+
+std::string reg_ofsize(std::string x, int sz) {
+    if (x == "rbx") {
+        if (sz == 8)
+            return "rbx";
+        if (sz == 4)
+            return "ebx";
+        if (sz == 2)
+            return "bx";
+        if (sz == 1)
+            return "bl";
+    }
+    if (sz == 8)
+        return x;
+    if (sz == 4)
+        return x + "d";
+    if (sz == 2)
+        return x + "w";
+    if (sz == 1)
+        return x + "b";
+    
+    return "UNSUPPORTED SIZE " + std::to_string(sz);
+}
+
+void assemble_func(std::ostream& os, func* f, std::vector<ir>& irs) {
     tidy_register(irs);
     for (auto x : irs) {
         auto r0 = regs[x.a0 ? x.a0->real : 0];
@@ -98,10 +131,56 @@ void assemble(std::ostream& os, std::vector<ir>& irs) {
             << format("\tmov {}, rdx\n", r0);
             break;
         case I_RET:
-            os << format("\tmov rax, {}\n", r0) << 
-            "\tmov rsp, rbp\n"
-            "\tpop rbp\n"
-            "\tret\n";
+            os << format("\tmov rax, {}\n", r0)
+            << format("\tjmp .Lfunc_end_{}\n", f->name);
+            break;
+        case I_LOCALREF:
+            os << format("\tlea {}, [rbp{}]\n", r0, x.v->offset);
+            break;
+        case I_GLOBALREF:
+            os << format("\tlea {}, {}\n", r0, x.v->name);
+            break;
+        case I_STORE:
+            os << format("\tmov [{}], {}\n", r0, reg_ofsize(r1, x.sz));
+            break;
+        case I_LOAD:
+            os << format("\tmov {}, [{}]\n", reg_ofsize(r0, x.sz), r1);
+            break;
+        default:
+            throw x.ty;
         }
+    }
+}
+
+void assemble(std::ostream& os, decltype(generate())& irs) {
+    os << ".intel_syntax noprefix\n";
+
+    for (auto [f, i] : irs) {
+        int offset = 0;
+        for (auto v : f->v->vars) {
+            v->offset = -(offset += v->ty.sz);
+        }
+        os << format(".text\n.global {}\n{}:\n", f->name, f->name) <<
+        "\tpush rbp\n"
+        "\tmov rbp, rsp\n";
+        
+        // rsp must get aligned to a multiple to 16 for "call" instruction to work
+        os << format("\tsub rsp, {}\n", round_up(offset, 16));
+        
+        // Preserve registers
+        for (int i = 12; i <= 15; i++)
+            os << format("\tpush r{}\n", i);
+
+        assemble_func(os, f, i);
+
+        os << format(".Lfunc_end_{}:\n", f->name);
+        
+        for (int i = 12; i <= 15; i++)
+            os << format("\tpop r{}\n", i);
+        
+        os <<
+        "\tmov rsp, rbp\n"
+        "\tpop rbp\n"
+        "\tret\n";
     }
 }

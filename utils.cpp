@@ -2,34 +2,100 @@
 #include "fmt/format.h"
 #include <algorithm>
 #include <iostream>
+#include <map>
+using fmt::format;
 
-template<class It, class V>
-bool contains(It begin, It end, V value) {
-    return std::find(begin, end, value) != end;
+#define MAPPED std::make_pair
+std::map<node_type, const char*> showmap = {
+    MAPPED(N_PLUS, "+"),
+    MAPPED(N_MINUS, "-"),
+    MAPPED(N_MUL, "*"),
+    MAPPED(N_DIV, "/"),
+    MAPPED(N_MOD, "%"),
+    MAPPED(N_ASSIGN, "="),
+};
+
+void print_ast(std::ostream& os, node* ast, int depth) {
+    os << std::flush;
+    os << "# ";
+    for (int i = 0; i < depth; i++)
+        os << "  ";
+    switch (ast->ty) {
+    case N_NUM:
+        os << format("num {}\n", ast->val);
+        break;
+    case N_VARREF:
+        os << format("ref {}\n", ast->target->name);
+        break;
+    case N_PLUS:
+    case N_MINUS:
+    case N_MUL:
+    case N_DIV:
+    case N_MOD:
+        os << showmap[ast->ty] << "\n";
+        print_ast(os, ast->lhs, depth + 1);
+        print_ast(os, ast->rhs, depth + 1);
+        break;
+    case N_ASSIGN:
+        os << "=\n# ";
+        for (int i = 0; i < depth + 1; i++)
+            os << "  ";
+        os << ast->target->name << "\n";
+        print_ast(os, ast->rhs, depth + 1);
+        break;
+    case N_BLOCK:
+        os << "block ->\n";
+        for (auto m : ast->nodes)
+            print_ast(os, m, depth + 1);
+        break;
+    case N_RET:
+        os << "ret\n";
+        print_ast(os, ast->lhs, depth + 1);
+        break;
+    default:
+        os << format("unknown value {}\n", (int) ast->ty);
+    }
 }
 
-void print_ir(std::vector<ir>& irs) {
-    for (auto x : irs)
+void print_ir(std::ostream& os, std::vector<ir>& irs) {
+    for (auto x : irs) {
+        os << "# ";
         switch (x.ty) {
         case I_IMM:
-            std::cout << fmt::format("IMM #{} = {}\n", x.a0->ind, x.imm);
+            os << format("IMM #{} = {}\n", x.a0->ind, x.imm);
             break;
         case I_ADD:
-            std::cout << fmt::format("ADD #{} #{}\n", x.a0->ind, x.a1->ind);
+            os << format("ADD #{} #{}\n", x.a0->ind, x.a1->ind);
             break;
         case I_SUB:
-            std::cout << fmt::format("SUB #{} #{}\n", x.a0->ind, x.a1->ind);
+            os << format("SUB #{} #{}\n", x.a0->ind, x.a1->ind);
             break;
         case I_IMUL:
-            std::cout << fmt::format("MUL #{} #{}\n", x.a0->ind, x.a1->ind);
+            os << format("MUL #{} #{}\n", x.a0->ind, x.a1->ind);
             break;
         case I_IDIV:
-            std::cout << fmt::format("DIV #{} #{}\n", x.a0->ind, x.a1->ind);
+            os << format("DIV #{} #{}\n", x.a0->ind, x.a1->ind);
             break;
         case I_MOD:
-            std::cout << fmt::format("MOD #{} #{}\n", x.a0->ind, x.a1->ind);
+            os << format("MOD #{} #{}\n", x.a0->ind, x.a1->ind);
+            break;
+        case I_LOCALREF:
+            os << format("REF #{} = &{}\n", x.a0->ind, x.v->name);
+            break;
+        case I_GLOBALREF:
+            os << format("REF #{} = &{} (G)\n", x.a0->ind, x.v->name);
+            break;
+        case I_STORE:
+            os << format("MOV *(#{}) = #{}\n", x.a0->ind, x.a1->ind);
+            break;
+        case I_LOAD:
+            os << format("MOV #{} = *(#{})\n", x.a0->ind, x.a1->ind);
+            break;
+        case I_RET:
+            os << format("RET #{}", x.a0->ind);
             break;
         default:
-            std::cout << "UNKNOWN\n";
+            os << format("UNKNOWN {}\n", (int) x.ty);
         }
+    }
 }

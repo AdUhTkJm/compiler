@@ -13,23 +13,47 @@ enum token_type {
     K_RET,          // return
     K_LBRACKET,     // (
     K_RBRACKET,     // )
+    K_INT,          // int
+    K_ASSIGN,       // =
+    K_IDENT,        // identifier
+    K_LBRACE,       // {
+    K_RBRACE,       // }
+    K_COMMA,        // ,
+    K_EOF,          // end of file
 };
 
 struct token {
     token_type ty;
     int val;
+
+    std::string ident;
 };
 
-struct unexpected_token {};
+struct unexpected_token: std::exception {
+    std::string desc;
+    
+    const char* what() {
+        return desc.c_str();
+    }
+
+    unexpected_token(): desc("") {}
+    unexpected_token(std::string desc): desc(desc) {}
+};
 
 class tstream {
     std::vector<token> tokens;
     int curr;
+    int memory;
 public:
     void tokenize(const std::string&);
     void retreat() { curr--; }
     token peek() { return tokens[curr]; }
     token consume() { return tokens[curr++]; }
+
+    void save() { memory = curr; }
+    void load() { curr = memory; }
+
+    void seteof() { tokens.push_back({ K_EOF }); }
 
     // For debug uses.
     void _print();

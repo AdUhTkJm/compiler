@@ -4,10 +4,5 @@
 #include "ir.h"
 #include "assem.h"
 
-// Finds if the container defined by [begin, end)
-// contains value.
-template<class It, class V>
-bool contains(It begin, It end, V value);
-
-void print_ast(node*);
-void print_ir(std::vector<ir>&);
+void print_ast(std::ostream&, node*, int=0);
+void print_ir(std::ostream&, std::vector<ir>&);

@@ -1,6 +1,7 @@
 *.sh
 .vscode/
 assem.s
+assem.o
 test.txt
 test.c
 com

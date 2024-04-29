@@ -204,7 +204,7 @@ void parse() {
                 expect(K_RBRACKET);
             }
             
-            f->v = new env;
+            f->v = new env(global);
             envi = f->v;
             f->body = stmt();
             envi = global;

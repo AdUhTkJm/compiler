@@ -64,15 +64,16 @@ void tidy_register(std::vector<ir>& irs) {
 }
 
 void assemble_var(std::ostream& os) {
-    for (auto x : global->vars) {
-        // All explicitly initialised variables should go into data segment
-        // But we do not support explicit initialisation yet
-        // So we put everything in .bss, which is zero-initialised
-        os << ".bss\n";
-        os << format("{}:\n\t.zero {}\n", x->name, x->ty.sz);
+    // All explicitly initialised variables should go into data segment
+    // But we do not support explicit initialisation yet
+    // So we put everything in .bss, which is zero-initialised  
+    os << "section .bss\n";
+    for (auto x : global->vars) {  
+        os << format("{} resb {}\n", x->name, x->ty.sz);
     }
 }
 
+// do a map here!
 std::string reg_ofsize(std::string x, int sz) {
     if (x == "rbx") {
         if (sz == 8)
@@ -153,21 +154,22 @@ void assemble_func(std::ostream& os, func* f, std::vector<ir>& irs) {
 }
 
 void assemble(std::ostream& os, decltype(generate())& irs) {
-    os << ".intel_syntax noprefix\n";
+
+    assemble_var(os);
 
     for (auto [f, i] : irs) {
         int offset = 0;
         for (auto v : f->v->vars) {
             v->offset = -(offset += v->ty.sz);
         }
-        os << format(".text\n.global {}\n{}:\n", f->name, f->name) <<
+        os << format("section .text\nglobal {}\n{}:\n", f->name, f->name) <<
         "\tpush rbp\n"
         "\tmov rbp, rsp\n";
         
         // rsp must get aligned to a multiple to 16 for "call" instruction to work
         os << format("\tsub rsp, {}\n", round_up(offset, 16));
         
-        // Preserve registers
+        // Preserve registers by calling convention
         for (int i = 12; i <= 15; i++)
             os << format("\tpush r{}\n", i);
 

@@ -28,7 +28,7 @@ int main() {
     std::cout << "Generation successful.\n";
 
     for (auto [f, i] : ir) {
-        ofs << "# " << f->name << "():\n\n";
+        ofs << "; " << f->name << "():\n";
         print_ir(ofs, i);
     }
     ofs << "\n\n" << std::flush;

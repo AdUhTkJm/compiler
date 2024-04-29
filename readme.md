@@ -2,13 +2,17 @@
 
 A small C compiler inspired by 9cc.
 
-### Change log
+### Changelog
+
+#### Step 4
+Added global variables.
+Changed assembly syntax to NASM, since intel_syntax noprefix is not well-documented.
 
 #### Step 3
-Add functions and int-typed variables.
+Added functions and int-typed variables.
 
 #### Step 2
-Add multiplication, brackets and return statement.
+Added multiplication, brackets and return statement.
 
 #### Step 1
-Add ability to evaluate plus and minus.
+Added ability to evaluate plus and minus.

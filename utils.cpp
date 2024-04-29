@@ -17,7 +17,7 @@ std::map<node_type, const char*> showmap = {
 
 void print_ast(std::ostream& os, node* ast, int depth) {
     os << std::flush;
-    os << "# ";
+    os << "; ";
     for (int i = 0; i < depth; i++)
         os << "  ";
     switch (ast->ty) {
@@ -37,7 +37,7 @@ void print_ast(std::ostream& os, node* ast, int depth) {
         print_ast(os, ast->rhs, depth + 1);
         break;
     case N_ASSIGN:
-        os << "=\n# ";
+        os << "=\n; ";
         for (int i = 0; i < depth + 1; i++)
             os << "  ";
         os << ast->target->name << "\n";
@@ -59,7 +59,7 @@ void print_ast(std::ostream& os, node* ast, int depth) {
 
 void print_ir(std::ostream& os, std::vector<ir>& irs) {
     for (auto x : irs) {
-        os << "# ";
+        os << "; ";
         switch (x.ty) {
         case I_IMM:
             os << format("IMM #{} = {}\n", x.a0->ind, x.imm);

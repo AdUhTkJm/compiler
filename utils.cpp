@@ -52,13 +52,19 @@ void print_ast(std::ostream& os, node* ast, int depth) {
         os << "ret\n";
         print_ast(os, ast->lhs, depth + 1);
         break;
+    case N_FCALL:
+        os << format("{}()\n", ast->name);
+        for (auto m : ast->nodes)
+            print_ast(os, m, depth + 1);
+        break;
     default:
         os << format("unknown value {}\n", (int) ast->ty);
     }
 }
 
-void print_ir(std::ostream& os, std::vector<ir>& irs) {
-    for (auto x : irs) {
+void print_ir(std::ostream& os, std::vector<ir*>& irs) {
+    for (auto y : irs) {
+        auto x = *y;
         os << "; ";
         switch (x.ty) {
         case I_IMM:
@@ -92,7 +98,10 @@ void print_ir(std::ostream& os, std::vector<ir>& irs) {
             os << format("MOV #{} = *(#{})\n", x.a0->ind, x.a1->ind);
             break;
         case I_RET:
-            os << format("RET #{}", x.a0->ind);
+            os << format("RET #{}\n", x.a0->ind);
+            break;
+        case I_CALL:
+            os << format("CALL {}\n", x.name);
             break;
         default:
             os << format("UNKNOWN {}\n", (int) x.ty);

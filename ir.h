@@ -9,11 +9,12 @@ enum ir_type {
     I_IMUL,         // imul
     I_IDIV,         // cqo; idiv; rax
     I_MOD,          // cqo; idiv; rdx
-    I_RET,          // mov rax, {}; epilogue
+    I_RET,          // mov rax, {}; jmp
     I_STORE,        // mov [{}], ...
     I_LOCALREF,     // lea {}, [rbp-offset];
     I_GLOBALREF,    // lea {}, VARNAME;
     I_LOAD,         // mov {}, [...]
+    I_CALL,         // call
 };
 
 // Note: register is a keyword
@@ -46,6 +47,10 @@ struct ir {
     var* v;
     // size of LOAD/STORE
     int sz;
+    // parameters of function call
+    std::vector<reg*> params;
+    // name of function call
+    std::string name;
 
     ir(ir_type ty, int imm, reg* a0);
     ir(ir_type ty, reg* a0, reg* a1=nullptr, reg* a2=nullptr);
@@ -53,4 +58,4 @@ struct ir {
     ir(ir_type ty, reg* a0, reg* a1, int sz);
 };
 
-std::map<func*, std::vector<ir>> generate();
+std::map<func*, std::vector<ir*>> generate();

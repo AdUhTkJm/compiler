@@ -12,6 +12,7 @@ enum node_type {
     N_ASSIGN,       // =
     N_VARREF,       // a;
     N_BLOCK,        // { ... }
+    N_FCALL,        // main();
 };
 
 enum type_type {
@@ -28,6 +29,7 @@ struct var {
     std::string name;
     
     bool is_global;
+    bool is_param;
 
     int offset;
 
@@ -47,14 +49,23 @@ struct env {
 // A node of AST.
 struct node {
     node_type ty;
+    
+    // Value of number literals
     int val;
 
+    // Operands
     node* lhs;
     node* rhs;
 
+    // Target of N_VARREF
     var* target;
 
+    // For N_BLOCK, this is all statements;
+    // For N_FCALL, this is all parameters
     std::vector<node*> nodes;
+    
+    // Name of the function to call
+    std::string name;
 
     node(node_type ty, int val);
     node(node_type ty, node* lhs=nullptr, node* rhs=nullptr);
@@ -66,8 +77,9 @@ struct func {
     
     node* body;
     env* v;
-    std::vector<var*> params;
     type ret;
+
+    std::vector<var*> params;
 };
 
 extern std::vector<func*> funcs;

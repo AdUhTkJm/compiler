@@ -2,7 +2,7 @@
 #include "utils.h"
 #include <map>
 #define MAPPED std::make_pair
-#define PUSH res.push_back
+#define PUSH(x) res.push_back(new x)
 
 std::map<node_type, ir_type> opmap {
     MAPPED(N_PLUS, I_ADD),
@@ -29,7 +29,7 @@ reg::reg(): ind(cnt++) {}
 
 
 // The result of generate()
-std::vector<ir> res;
+std::vector<ir*> res;
 
 reg* gen_imm(node* ast) {
     reg* a0 = new reg;
@@ -87,12 +87,22 @@ reg* gen_expr(node* ast) {
         for (auto m : ast->nodes)
             gen_expr(m);
         return nullptr;
+    case N_FCALL: {
+        a0 = new reg;
+
+        ir* i = new ir(I_CALL, a0);
+        for (auto m : ast->nodes)
+            i->params.push_back(gen_expr(m));
+        i->name = ast->name;
+        res.push_back(i);
+        return a0;
+    }
     default:
         throw ast->ty;
     }
 }
 
-std::map<func*, std::vector<ir>> generate() {
+std::map<func*, std::vector<ir*>> generate() {
     decltype(generate()) p;
     for (auto f : funcs) {
         res.clear();

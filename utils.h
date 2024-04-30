@@ -5,4 +5,4 @@
 #include "assem.h"
 
 void print_ast(std::ostream&, node*, int=0);
-void print_ir(std::ostream&, std::vector<ir>&);
+void print_ir(std::ostream&, std::vector<ir*>&);

@@ -1,5 +1,6 @@
 #include "ast.h"
 #include <algorithm>
+#include <iostream>
 
 std::vector<func*> funcs;
 
@@ -87,6 +88,25 @@ node* primary() {
 
     if (tin.peek().ty == K_IDENT) {
         token t = tin.consume();
+
+        // Function call
+        if (test(K_LBRACKET)) {
+            node* k = new node(N_FCALL);
+
+            if (std::find_if(funcs.begin(), funcs.end(), [t](func* f) { return f->name == t.ident; }) == funcs.end())
+                std::cout << "Warning: function " << t.ident << " not found\n";
+
+            k->name = t.ident;
+
+            if (!test(K_RBRACKET)) {
+                do k->nodes.push_back(expr()); while (test(K_COMMA));
+                expect(K_RBRACKET);
+            }
+
+            return k;
+        }
+
+        // Variable reference
         return new node(N_VARREF, resolve(t.ident));
     }
 
@@ -198,19 +218,26 @@ void parse() {
             func* f = new func;
             f->ret = get_simple_type();
             f->name = tin.consume().ident;
+            f->v = envi = new env(global);
             expect(K_LBRACKET);
             if (!test(K_RBRACKET)) {
-                do f->params.push_back(get_var()); while (test(K_COMMA));
+                do {
+                    var* v = get_var();
+                    v->is_param = true;
+                    f->params.push_back(v);
+                    f->v->vars.push_back(v);
+                } while (test(K_COMMA));
                 expect(K_RBRACKET);
             }
             
-            f->v = new env(global);
-            envi = f->v;
+            if (tin.peek().ty != K_LBRACE)
+                throw unexpected_token("Expected {");
+                
             f->body = stmt();
             envi = global;
 
             funcs.push_back(f);
-            return;
+            continue;
         }
         
         var* v = get_var();

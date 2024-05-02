@@ -93,9 +93,6 @@ node* primary() {
         if (test(K_LBRACKET)) {
             node* k = new node(N_FCALL);
 
-            if (std::find_if(funcs.begin(), funcs.end(), [t](func* f) { return f->name == t.ident; }) == funcs.end())
-                std::cout << "Warning: function " << t.ident << " not found\n";
-
             k->name = t.ident;
 
             if (!test(K_RBRACKET)) {
@@ -119,33 +116,53 @@ node* primary() {
 
 node* factor() {
     node* t = primary();
-    token op = tin.consume();
 
-    if (op.ty == K_MUL)
+    if (test(K_MUL))
         return new node(N_MUL, t, factor());
-    if (op.ty == K_DIV)
+    if (test(K_DIV))
         return new node(N_DIV, t, factor());
-    if (op.ty == K_MOD)
+    if (test(K_MOD))
         return new node(N_MOD, t, factor());
     
-    tin.retreat();
     return t;
 }
 
 node* term() {
     node* t = factor();
-    token op = tin.consume();
-    if (op.ty == K_MINUS)
+    if (test(K_MINUS))
         return new node(N_MINUS, t, term());
-    if (op.ty == K_PLUS)
+    if (test(K_PLUS))
         return new node(N_PLUS, t, term());
     
-    tin.retreat();
+    return t;
+}
+
+node* less() {
+    node* t = term();
+    if (test(K_LEQ))
+        return new node(N_LEQ, t, term());
+    if (test(K_GEQ))
+        return new node(N_GEQ, t, term());
+    if (test(K_LE))
+        return new node(N_LE, t, term());
+    if (test(K_GE))
+        return new node(N_GE, t, term());
+    
+    return t;
+}
+
+node* eq() {
+    node* t = less();
+    if (test(K_EQ))
+        return new node(N_EQ, t, term());
+    if (test(K_NEQ))
+        return new node(N_NEQ, t, term());
+
     return t;
 }
 
 node* assign() {
-    node* t = term();
+    node* t = eq();
     token op = tin.consume();
     if (op.ty == K_ASSIGN)
         return new node(N_ASSIGN, t->target, expr());
@@ -177,6 +194,69 @@ node* stmt() {
         
         expect(K_SEMICOLON);
         return r;
+    }
+
+    // if-statement
+    if (test(K_IF)) {
+        node* t = new node(N_IF);
+        expect(K_LBRACKET);
+        t->cond = expr();
+        expect(K_RBRACKET);
+        t->lhs = stmt();
+
+        if (test(K_ELSE))
+            t->rhs = stmt();
+        
+        return t;
+    }
+
+    // while-statement
+    if (test(K_WHILE)) {
+        node* t = new node(N_WHILE);
+        expect(K_LBRACKET);
+        t->cond = expr();
+        expect(K_RBRACKET);
+        t->lhs = stmt();
+        return t;
+    }
+
+    // for-statement
+    if (test(K_FOR)) {
+        node* t = new node(N_FOR);
+        expect(K_LBRACKET);
+
+        env* old = envi;
+        env* v = new env(envi);
+        envi = v;
+
+        // init
+        if (tin.peek().ty != K_SEMICOLON) {
+            // (1) Variable declaration
+            if (is_type())
+                t->init = stmt();
+            
+            // (2) Any other expression
+            else {
+                t->init = expr();
+                expect(K_SEMICOLON);
+            }
+        } else t->init = nullptr, tin.consume();
+
+        // cond
+        if (tin.peek().ty != K_SEMICOLON) {
+            t->cond = expr();
+            expect(K_SEMICOLON);
+        } else t->cond = new node(N_NUM, 1), tin.consume();
+        
+        // step
+        if (!test(K_RBRACKET)) {
+            t->step = expr();
+            expect(K_RBRACKET);
+        } else t->step = nullptr, tin.consume();
+
+        t->lhs = stmt();
+        envi = old;
+        return t;
     }
     
     // Block

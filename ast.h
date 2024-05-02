@@ -13,6 +13,15 @@ enum node_type {
     N_VARREF,       // a;
     N_BLOCK,        // { ... }
     N_FCALL,        // main();
+    N_IF,           // if
+    N_FOR,          // for
+    N_WHILE,        // while
+    N_LE,           // <
+    N_GE,           // >
+    N_LEQ,          // <=
+    N_GEQ,          // >=
+    N_NEQ,          // !=
+    N_EQ,           // ==
 };
 
 enum type_type {
@@ -33,7 +42,7 @@ struct var {
 
     int offset;
 
-    var(): is_global(false) {}
+    var(): is_global(false), is_param(false), offset(0) {}
 };
 
 // Environment
@@ -66,6 +75,15 @@ struct node {
     
     // Name of the function to call
     std::string name;
+
+    // condition of if/while/for
+    node* cond;
+
+    // init and step expression of for
+    // for if/while/for, their block is in lhs
+    // the else block is in rhs
+    node* init;
+    node* step;
 
     node(node_type ty, int val);
     node(node_type ty, node* lhs=nullptr, node* rhs=nullptr);

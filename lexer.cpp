@@ -3,10 +3,42 @@
 #include "fmt/format.h"
 #include <algorithm>
 #include <iostream>
+#include <map>
+#define MAPPED std::make_pair
 
 tstream tin;
 
+std::map<std::string, token_type> tkmap {
+    MAPPED("return", K_RET),
+    MAPPED("if", K_IF),
+    MAPPED("else", K_ELSE),
+    MAPPED("for", K_FOR),
+    MAPPED("while", K_WHILE),
+    MAPPED("int", K_INT),
+    MAPPED("+", K_PLUS),
+    MAPPED("-", K_MINUS),
+    MAPPED("*", K_MUL),
+    MAPPED("/", K_DIV),
+    MAPPED("%", K_MOD),
+    MAPPED(";", K_SEMICOLON),
+    MAPPED("(", K_LBRACKET),
+    MAPPED(")", K_RBRACKET),
+    MAPPED("{", K_LBRACE),
+    MAPPED("}", K_RBRACE),
+    MAPPED(",", K_COMMA),
+    MAPPED("=", K_ASSIGN),
+    MAPPED("<", K_LE),
+    MAPPED("<=", K_LEQ),
+    MAPPED(">", K_GE),
+    MAPPED(">=", K_GEQ),
+    MAPPED("==", K_EQ),
+    MAPPED("!=", K_NEQ),
+};
+
 void tstream::tokenize(const std::string& what) {
+    static std::string ext[] = {
+        "+", "-", "<", ">", "=", "*", "/", "%", "!"
+    };
     for (int i = 0; i < what.size();) {
         char x = what[i];
 
@@ -16,10 +48,8 @@ void tstream::tokenize(const std::string& what) {
             while (isalpha(what[i]))
                 str.push_back(what[i++]);
             
-            if (str == "return")
-                tokens.push_back({ K_RET });
-            else if (str == "int")
-                tokens.push_back({ K_INT });
+            if (tkmap.find(str) != tkmap.end())
+                tokens.push_back({ tkmap[str] });
             else {
                 token t { K_IDENT };
                 t.ident = str;
@@ -38,30 +68,11 @@ void tstream::tokenize(const std::string& what) {
         }
 
         // Reads an operator.
-        if (x == '+')
-            tokens.push_back({ K_PLUS });
-        if (x == '-')
-            tokens.push_back({ K_MINUS });
-        if (x == '*')
-            tokens.push_back({ K_MUL });
-        if (x == '/')
-            tokens.push_back({ K_DIV });
-        if (x == '%')
-            tokens.push_back({ K_MOD });
-        if (x == ';')
-            tokens.push_back({ K_SEMICOLON });
-        if (x == '(')
-            tokens.push_back({ K_LBRACKET });
-        if (x == ')')
-            tokens.push_back({ K_RBRACKET });
-        if (x == '{')
-            tokens.push_back({ K_LBRACE });
-        if (x == '}')
-            tokens.push_back({ K_RBRACE });
-        if (x == ',')
-            tokens.push_back({ K_COMMA });
-        if (x == '=')
-            tokens.push_back({ K_ASSIGN });
+        std::string s = std::string() + x;
+        if (what[i + 1] == '=' && std::find(ext, ext + sizeof(ext), s) != ext + sizeof(ext))
+            s += what[++i];
+
+        tokens.push_back({ tkmap[s] });
         i++;
     }
 }

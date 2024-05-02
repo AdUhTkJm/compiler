@@ -15,6 +15,16 @@ enum ir_type {
     I_GLOBALREF,    // lea {}, VARNAME;
     I_LOAD,         // mov {}, [...]
     I_CALL,         // call
+    I_IF,           // cmp {}, 0; jne
+    I_WHILE,        // cmp {}, 0; jne
+    I_FOR,          // cmp {}, 0; jne
+    I_GE,           // setg
+    I_LE,           // setl
+    I_LEQ,          // setle
+    I_GEQ,          // setge
+    I_NEQ,          // setne
+    I_EQ,           // sete
+    I_RAW,          // (raw assembly)
 };
 
 // Note: register is a keyword
@@ -41,7 +51,8 @@ struct ir {
     ir_type ty;
     // operands of the instruction
     reg *a0, *a1, *a2;
-    // immediate value
+    // for I_IMM, immediate value
+    // for I_JMP, the number of label
     int imm;
     // variable involved
     var* v;
@@ -53,9 +64,10 @@ struct ir {
     std::string name;
 
     ir(ir_type ty, int imm, reg* a0);
-    ir(ir_type ty, reg* a0, reg* a1=nullptr, reg* a2=nullptr);
+    ir(ir_type ty, reg* a0=nullptr, reg* a1=nullptr, reg* a2=nullptr);
     ir(ir_type ty, reg* a0, var* v);
     ir(ir_type ty, reg* a0, reg* a1, int sz);
+    ir(std::string);
 };
 
 std::map<func*, std::vector<ir*>> generate();

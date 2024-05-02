@@ -1,13 +1,17 @@
 ## C Compiler
 
 A small C compiler inspired by 9cc.
+See [my blog](https://aduhtkjm.wordpress.com/) for more.
 
 ### Changelog
 
+#### Step 6
+Added if-, while- and for-statements.
+
+Added comparison operators.
+
 #### Step 5
 Added function calls.
-
-Since if-statements are yet to implemented, recursion cannot get tested currently.
 
 #### Step 4
 Added global variables.

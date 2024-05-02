@@ -1,4 +1,5 @@
 *.sh
+unused
 .vscode/
 assem.s
 assem.o
@@ -6,3 +7,4 @@ test.txt
 test.c
 com
 tmp
+.gitignore

@@ -4,6 +4,7 @@
 #include "fmt/format.h" // workaround of C++20
 #include <iostream>
 #include <algorithm>
+#define MAPPED std::make_pair
 
 using fmt::format;
 
@@ -12,6 +13,15 @@ using fmt::format;
 // Other registers are unused because they are of different uses (eg. function arguments)
 reg* used[7] = { 0 };
 const char* regs[] = { "r10", "r11", "r12", "r13", "r14", "r15", "rbx" };
+
+std::map<ir_type, std::string> cmpmap {
+    MAPPED(I_LE, "setl"),
+    MAPPED(I_GE, "setg"),
+    MAPPED(I_LEQ, "setle"),
+    MAPPED(I_GEQ, "setge"),
+    MAPPED(I_EQ, "sete"),
+    MAPPED(I_NEQ, "setne"),
+};
 
 // Round val up to the smallest integer that is divisible by x
 // and larger than val.
@@ -149,6 +159,16 @@ void assemble_func(std::ostream& os, func* f, std::vector<ir*>& irs) {
             << format("\tidiv {}\n", r1)
             << format("\tmov {}, rdx\n", r0);
             break;
+        case I_LE:
+        case I_GE:
+        case I_LEQ:
+        case I_GEQ:
+        case I_NEQ:
+        case I_EQ:
+            os << format("\tcmp {}, {}\n", r0, r1)
+            << format("\t{} {}\n", cmpmap[x->ty], reg_ofsize(r0, 1))
+            << format("\tmovzx {}, {}\n", r0, reg_ofsize(r0, 1));
+            break;
         case I_RET:
             os << format("\tmov rax, {}\n", r0)
             << format("\tjmp .Lfunc_end_{}\n", f->name);
@@ -195,6 +215,23 @@ void assemble_func(std::ostream& os, func* f, std::vector<ir*>& irs) {
 
             break;
         }
+        case I_IF:
+            os << format("\tcmp {}, 0\n", r0)
+            << format("\tje .Lif_{}_unhit\n", x->imm);
+            break;    
+        case I_WHILE:
+            os << format("\tcmp {}, 0\n", r0)
+            << format("\tje .Lwhile_{}_end\n", x->imm);
+            break;
+        case I_FOR:
+            os << format("\tcmp {}, 0\n", r0)
+            << format("\tje .Lfor_{}_end\n", x->imm);
+            break;
+        case I_RAW:
+            if (x->name[0] != '.')
+                os << "\t";
+            os << x->name << "\n";
+            break;
         default:
             throw x->ty;
         }

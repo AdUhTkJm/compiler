@@ -20,6 +20,16 @@ enum token_type {
     K_RBRACE,       // }
     K_COMMA,        // ,
     K_EOF,          // end of file
+    K_IF,           // if
+    K_ELSE,         // else
+    K_FOR,          // for
+    K_WHILE,        // while
+    K_LE,           // <
+    K_GE,           // >
+    K_LEQ,          // <=
+    K_GEQ,          // >=
+    K_EQ,           // ==
+    K_NEQ,          // !=
 };
 
 struct token {

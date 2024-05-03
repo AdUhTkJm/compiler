@@ -29,7 +29,7 @@ env* const global = new env;
 // Does not consume.
 bool is_type() {
     static token_type tys[] = {
-        K_INT
+        K_INT, K_CHAR, K_LONG, K_SHORT, K_VOID
     };
     token_type t = tin.peek().ty;
 
@@ -43,14 +43,27 @@ bool is_type() {
 type get_simple_type() {
     token t = tin.consume();
     type res;
+    res.ty = t.ty;
     switch (t.ty) {
     case K_INT:
-        res.ty = T_INT;
         res.sz = 4;
+        break;
+    case K_LONG:
+        res.sz = 8;
+        break;
+    case K_CHAR:
+        res.sz = 1;
+        break;
+    case K_SHORT:
+        res.sz = 2;
+        break;
+    case K_VOID:
+        res.sz = 1; // So that void* behaves correctly.
         break;
     default:
         throw unexpected_token("Type not recognised");
     }
+    
     return res;
 }
 
@@ -114,8 +127,35 @@ node* primary() {
     throw unexpected_token("Unexpected primary()");
 }
 
-node* factor() {
+node* unary() {
+    token k = tin.peek();
+    if (test(K_PP) || test(K_MM)) {
+        node* t = primary();
+        if (t->ty != N_VARREF)
+            throw unexpected_token("Expected identifier after ++/--");
+        else
+            return new node(k.ty == K_PP ? N_PLUSEQ : N_MINUSEQ, t->target, new node(N_NUM, 1));
+    }
+
+    if (test(K_MINUS))
+        return new node(N_MINUS, new node(N_NUM, 0), primary());
+    if (test(K_PLUS))
+        ;
+
     node* t = primary();
+    
+    k = tin.peek();
+    if (test(K_PP) || test(K_MM))
+        if (t->ty != N_VARREF)
+            throw unexpected_token("Expected identifier before ++/--");
+        else
+            return new node(k.ty == K_PP ? N_POSTINC : N_POSTDEC, t->target);
+    
+    return t;
+}
+
+node* factor() {
+    node* t = unary();
 
     if (test(K_MUL))
         return new node(N_MUL, t, factor());
@@ -163,11 +203,19 @@ node* eq() {
 
 node* assign() {
     node* t = eq();
-    token op = tin.consume();
-    if (op.ty == K_ASSIGN)
+    if (test(K_ASSIGN))
         return new node(N_ASSIGN, t->target, expr());
-
-    tin.retreat();
+    if (test(K_PLUSEQ))
+        return new node(N_PLUSEQ, t->target, expr());
+    if (test(K_MINUSEQ))
+        return new node(N_MINUSEQ, t->target, expr());
+    if (test(K_MULEQ))
+        return new node(N_MULEQ, t->target, expr());
+    if (test(K_DIVEQ))
+        return new node(N_DIVEQ, t->target, expr());
+    if (test(K_MODEQ))
+        return new node(N_MODEQ, t->target, expr());
+    
     return t;
 }
 
@@ -230,7 +278,7 @@ node* stmt() {
         envi = v;
 
         // init
-        if (tin.peek().ty != K_SEMICOLON) {
+        if (!test(K_SEMICOLON)) {
             // (1) Variable declaration
             if (is_type())
                 t->init = stmt();
@@ -240,19 +288,19 @@ node* stmt() {
                 t->init = expr();
                 expect(K_SEMICOLON);
             }
-        } else t->init = nullptr, tin.consume();
+        } else t->init = nullptr;
 
         // cond
-        if (tin.peek().ty != K_SEMICOLON) {
+        if (!test(K_SEMICOLON)) {
             t->cond = expr();
             expect(K_SEMICOLON);
-        } else t->cond = new node(N_NUM, 1), tin.consume();
+        } else t->cond = new node(N_NUM, 1);
         
         // step
         if (!test(K_RBRACKET)) {
             t->step = expr();
             expect(K_RBRACKET);
-        } else t->step = nullptr, tin.consume();
+        } else t->step = nullptr;
 
         t->lhs = stmt();
         envi = old;

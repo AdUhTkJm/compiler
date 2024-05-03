@@ -1,5 +1,4 @@
 #include "assem.h"
-#include "utils.h"
 #include <fstream>
 #include <iostream>
 
@@ -7,16 +6,13 @@ int main() {
     std::ifstream ifs("test.c");
     std::ofstream ofs("assem.s");
     
-    for (std::string str; ifs >> str; tin.tokenize(str));
+    // For debug uses; links putchar() in stdio.h
+    ofs << "extern putchar\n";
+
+    for (std::string str; getline(ifs, str); tin.tokenize(str));
     tin.seteof();
 
-    try {
-        parse();
-    } catch (unexpected_token t) {
-        std::cout << t.what() << "\n";
-        std::cout << "Parsing failed.\n";
-        return 0;
-    }
+    parse();
 
     auto ir = generate();
 

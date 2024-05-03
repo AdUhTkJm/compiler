@@ -30,6 +30,17 @@ enum token_type {
     K_GEQ,          // >=
     K_EQ,           // ==
     K_NEQ,          // !=
+    K_PLUSEQ,       // +=
+    K_MINUSEQ,      // -=
+    K_MULEQ,        // *=
+    K_DIVEQ,        // /=
+    K_MODEQ,        // %=
+    K_PP,           // ++
+    K_MM,           // --
+    K_LONG,         // long
+    K_SHORT,        // short
+    K_CHAR,         // char
+    K_VOID,         // void
 };
 
 struct token {
@@ -42,7 +53,7 @@ struct token {
 struct unexpected_token: std::exception {
     std::string desc;
     
-    const char* what() {
+    const char* what() const noexcept override {
         return desc.c_str();
     }
 

@@ -1,5 +1,4 @@
 #include "lexer.h"
-#include "utils.h"
 #include "fmt/format.h"
 #include <algorithm>
 #include <iostream>
@@ -15,6 +14,10 @@ std::map<std::string, token_type> tkmap {
     MAPPED("for", K_FOR),
     MAPPED("while", K_WHILE),
     MAPPED("int", K_INT),
+    MAPPED("long", K_LONG),
+    MAPPED("short", K_SHORT),
+    MAPPED("char", K_CHAR),
+    MAPPED("void", K_VOID),
     MAPPED("+", K_PLUS),
     MAPPED("-", K_MINUS),
     MAPPED("*", K_MUL),
@@ -33,6 +36,13 @@ std::map<std::string, token_type> tkmap {
     MAPPED(">=", K_GEQ),
     MAPPED("==", K_EQ),
     MAPPED("!=", K_NEQ),
+    MAPPED("+=", K_PLUSEQ),
+    MAPPED("-=", K_MINUSEQ),
+    MAPPED("*=", K_MULEQ),
+    MAPPED("/=", K_DIVEQ),
+    MAPPED("%=", K_MODEQ),
+    MAPPED("++", K_PP),
+    MAPPED("--", K_MM),
 };
 
 void tstream::tokenize(const std::string& what) {
@@ -41,6 +51,11 @@ void tstream::tokenize(const std::string& what) {
     };
     for (int i = 0; i < what.size();) {
         char x = what[i];
+
+        if (isblank(x)) {
+            i++;
+            continue;
+        }
 
         // Reads an identifier - or a keyword.
         if (isalpha(x)) {
@@ -71,7 +86,13 @@ void tstream::tokenize(const std::string& what) {
         std::string s = std::string() + x;
         if (what[i + 1] == '=' && std::find(ext, ext + sizeof(ext), s) != ext + sizeof(ext))
             s += what[++i];
+        if (what[i] == '+' && what[i + 1] == '+' || what[i] == '-' && what[i + 1] == '-')
+            s += what[++i];
 
+        // tokenize() only deals with a single line.
+        if (what[i] == '/' && what[i + 1] == '/')
+            return;
+            
         tokens.push_back({ tkmap[s] });
         i++;
     }

@@ -1,5 +1,4 @@
 #include "ir.h"
-#include "utils.h"
 #include "fmt/format.h"
 #include <map>
 #define MAPPED std::make_pair
@@ -19,6 +18,16 @@ std::map<node_type, ir_type> opmap {
     MAPPED(N_GEQ, I_GEQ),
     MAPPED(N_NEQ, I_NEQ),
     MAPPED(N_EQ, I_EQ),
+};
+
+std::map<node_type, node_type> ndmap {
+    MAPPED(N_PLUSEQ, N_PLUS),
+    MAPPED(N_MINUSEQ, N_MINUS),
+    MAPPED(N_MULEQ, N_MUL),
+    MAPPED(N_DIVEQ, N_DIV),
+    MAPPED(N_MODEQ, N_MOD),
+    MAPPED(N_POSTINC, N_PLUSEQ),
+    MAPPED(N_POSTDEC, N_MINUSEQ),
 };
 
 ir::ir(ir_type ty, int imm, reg* a0):
@@ -92,6 +101,22 @@ reg* gen_expr(node* ast) {
         
         PUSH(ir(opmap[ast->ty], a0, a1));
         return a0;
+    case N_PLUSEQ:
+    case N_MINUSEQ:
+    case N_MULEQ:
+    case N_DIVEQ:
+    case N_MODEQ:
+        return gen_expr(new node(
+            N_ASSIGN, ast->target,
+            new node(ndmap[ast->ty], new node(N_VARREF, ast->target), ast->rhs)
+        ));
+    case N_POSTINC:
+    case N_POSTDEC:
+        a0 = gen_expr(new node(N_VARREF, ast->target));
+
+        gen_expr(new node(ndmap[ast->ty], ast->target, new node(N_NUM, 1)));
+
+        return a0;
     case N_VARREF:
         a0 = new reg;
         a1 = gen_addr(ast->target);
@@ -103,7 +128,7 @@ reg* gen_expr(node* ast) {
         a1 = gen_expr(ast->rhs);
 
         PUSH(ir(I_STORE, a0, a1, ast->target->ty.sz));
-        return a0;
+        return a1; // !! We need value rather than address
     case N_BLOCK:
         for (auto m : ast->nodes)
             gen_expr(m);

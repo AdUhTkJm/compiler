@@ -261,8 +261,9 @@ void assemble(std::ostream& os, decltype(generate())& irs) {
                 v->offset = off_param += 8; // Every push grows stack by 8 bytes
         }
         
-        // rsp must get aligned to a multiple to 16 for "call" instruction to work
-        os << format("\tsub rsp, {}\n", round_up(offset, 16));
+        // rsp must get aligned to a multiple to 16 by calling convention
+        // since we pushed 5 registers, we need to complement another 8 bytes
+        os << format("\tsub rsp, {}\n", round_up(offset, 16) + 8);
         
         // Preserve registers by calling convention
         for (int i = 12; i <= 15; i++)

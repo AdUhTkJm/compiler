@@ -3,8 +3,9 @@ unused
 .vscode/
 assem.s
 assem.o
-test.txt
 test.c
+helper.c
+helper.o
 com
 tmp
 .gitignore

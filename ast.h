@@ -22,14 +22,17 @@ enum node_type {
     N_GEQ,          // >=
     N_NEQ,          // !=
     N_EQ,           // ==
-};
-
-enum type_type {
-    T_INT,
+    N_PLUSEQ,       // +=
+    N_MINUSEQ,      // -=
+    N_MULEQ,        // *=
+    N_DIVEQ,        // /=
+    N_MODEQ,        // %=
+    N_POSTINC,      // post ++
+    N_POSTDEC,      // post --
 };
 
 struct type {
-    type_type ty;
+    int ty;
     int sz;
 };
 

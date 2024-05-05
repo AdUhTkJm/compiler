@@ -29,15 +29,27 @@ enum node_type {
     N_MODEQ,        // %=
     N_POSTINC,      // post ++
     N_POSTDEC,      // post --
+    N_DEREF,        // *p
+    N_ADDR,         // &a
 };
 
 struct type {
     int ty;
     int sz;
+
+    type* ptr_to;
+
+    explicit type(int=0);
+    explicit type(type*);
+
+    bool operator==(type);
+    bool operator!=(type);
+
+    static int get_size(int);
 };
 
 struct var {
-    type ty;
+    type* ty;
     std::string name;
     
     bool is_global;
@@ -88,6 +100,12 @@ struct node {
     node* init;
     node* step;
 
+    // for semantics check
+    bool is_lval;
+    // means "type in C"
+    type* cty;
+    
+
     node(node_type ty, int val);
     node(node_type ty, node* lhs=nullptr, node* rhs=nullptr);
     node(node_type ty, var* target, node* rhs=nullptr);
@@ -98,7 +116,7 @@ struct func {
     
     node* body;
     env* v;
-    type ret;
+    type* ret;
 
     std::vector<var*> params;
 };
@@ -109,3 +127,5 @@ extern env* const global;
 // Parse the AST from tokens stored in tin.
 // Data is stored in funcs and globals.
 void parse();
+
+bool is_int_type(type*);

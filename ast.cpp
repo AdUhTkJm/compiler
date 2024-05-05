@@ -1,24 +1,52 @@
 #include "ast.h"
 #include <algorithm>
 #include <iostream>
+#include <map>
+#define MAPPED std::make_pair
 
 std::vector<func*> funcs;
 
 node::node(node_type ty, int val):
-    ty(ty), val(val) { }
+    ty(ty), val(val), is_lval(false) { }
 
 node::node(node_type ty, node* lhs, node* rhs):
-    ty(ty), lhs(lhs), rhs(rhs) { }
+    ty(ty), lhs(lhs), rhs(rhs), is_lval(false) { }
 
 node::node(node_type ty, var* target, node* rhs):
-    ty(ty), target(target), rhs(rhs) { }
+    ty(ty), target(target), rhs(rhs), is_lval(false) { }
 
 env::env(env* father): father(father) { }
+
+type::type(int ty): ty(ty), sz(get_size(ty)) { }
+
+type::type(type* ptr): ty(K_MUL), sz(8), ptr_to(ptr) {  }
 
 void env::push(var* v) {
     vars.push_back(v);
     if (father && father != global)
         father->push(v);
+}
+
+bool type::operator==(type x) {
+    if (x.ty == K_MUL && ty == K_MUL)
+        return *x.ptr_to == *ptr_to;
+    
+    return ty == x.ty;
+}
+
+bool type::operator!=(type x) {
+    return !(*this == x);
+}
+
+int type::get_size(int x) {
+    static std::map<int, int> szof {
+        MAPPED(K_INT, 4),
+        MAPPED(K_CHAR, 1),
+        MAPPED(K_LONG, 8),
+        MAPPED(K_SHORT, 2),
+        MAPPED(K_VOID, 1),
+    };
+    return szof[x];
 }
 
 // The environment we are currently in.
@@ -38,46 +66,63 @@ bool is_type() {
     return false;
 }
 
+bool is_int_type(type* t) {
+    static token_type tys[] = {
+        K_INT, K_CHAR, K_LONG, K_SHORT
+    };
+
+    if (std::find(tys, tys + sizeof tys, t->ty) != tys + sizeof tys)
+        return true;
+    return false;
+}
+
 // Gets a simple type (i.e. not things like void (*)(int))
 // Consumes all the way up to what's needed.
-type get_simple_type() {
+type* get_simple_type() {
     token t = tin.consume();
-    type res;
-    res.ty = t.ty;
+    type* res = new type(t.ty);
     switch (t.ty) {
     case K_INT:
-        res.sz = 4;
+        res->sz = 4;
         break;
     case K_LONG:
-        res.sz = 8;
+        res->sz = 8;
         break;
     case K_CHAR:
-        res.sz = 1;
+        res->sz = 1;
         break;
     case K_SHORT:
-        res.sz = 2;
+        res->sz = 2;
         break;
     case K_VOID:
-        res.sz = 1; // So that void* behaves correctly.
+        res->sz = 1; // So that void* behaves correctly.
         break;
     default:
         throw unexpected_token("Type not recognised");
     }
+
+    while (test(K_MUL))
+        res = new type(res);
     
     return res;
 }
 
 // Gets the declaration of the whole variable.
 // Consumes all the way up to what's needed.
-var* get_var() {
+var* get_var(bool named = true) {
     var* res = new var;
-    type t = get_simple_type();
-    // Ready to test for (*) etc.
+    type* t = get_simple_type();
+    
+    if (t->ty == K_VOID)
+        throw unexpected_token("Void is not a valid type for variables");
 
-    // Simple declaration
     res->ty = t;
+
     if (tin.peek().ty != K_IDENT)
-        throw unexpected_token("Expected identifier");
+        if (named)
+            throw unexpected_token("Expected identifier");
+        else return res;
+    
     res->name = tin.consume().ident;
     return res;
 }
@@ -130,17 +175,22 @@ node* primary() {
 node* unary() {
     token k = tin.peek();
     if (test(K_PP) || test(K_MM)) {
-        node* t = primary();
+        node* t = unary();
         if (t->ty != N_VARREF)
             throw unexpected_token("Expected identifier after ++/--");
         else
-            return new node(k.ty == K_PP ? N_PLUSEQ : N_MINUSEQ, t->target, new node(N_NUM, 1));
+            return new node(k.ty == K_PP ? N_PLUSEQ : N_MINUSEQ, t, new node(N_NUM, 1));
     }
 
     if (test(K_MINUS))
-        return new node(N_MINUS, new node(N_NUM, 0), primary());
+        return new node(N_MINUS, new node(N_NUM, 0), unary());
     if (test(K_PLUS))
         ;
+
+    if (test(K_MUL))
+        return new node(N_DEREF, unary());
+    if (test(K_AND))
+        return new node(N_ADDR, unary());
 
     node* t = primary();
     
@@ -149,7 +199,7 @@ node* unary() {
         if (t->ty != N_VARREF)
             throw unexpected_token("Expected identifier before ++/--");
         else
-            return new node(k.ty == K_PP ? N_POSTINC : N_POSTDEC, t->target);
+            return new node(k.ty == K_PP ? N_POSTINC : N_POSTDEC, t);
     
     return t;
 }
@@ -204,17 +254,17 @@ node* eq() {
 node* assign() {
     node* t = eq();
     if (test(K_ASSIGN))
-        return new node(N_ASSIGN, t->target, expr());
+        return new node(N_ASSIGN, t, expr());
     if (test(K_PLUSEQ))
-        return new node(N_PLUSEQ, t->target, expr());
+        return new node(N_PLUSEQ, t, expr());
     if (test(K_MINUSEQ))
-        return new node(N_MINUSEQ, t->target, expr());
+        return new node(N_MINUSEQ, t, expr());
     if (test(K_MULEQ))
-        return new node(N_MULEQ, t->target, expr());
+        return new node(N_MULEQ, t, expr());
     if (test(K_DIVEQ))
-        return new node(N_DIVEQ, t->target, expr());
+        return new node(N_DIVEQ, t, expr());
     if (test(K_MODEQ))
-        return new node(N_MODEQ, t->target, expr());
+        return new node(N_MODEQ, t, expr());
     
     return t;
 }
@@ -226,6 +276,10 @@ node* expr() {
 node* stmt() {
     // 'return' statement
     if (test(K_RET)) {
+        // empty return
+        if (test(K_SEMICOLON))
+            return new node(N_RET);
+
         node* t = expr();
         expect(K_SEMICOLON);
         return new node(N_RET, t);
@@ -238,7 +292,7 @@ node* stmt() {
 
         node* r = nullptr;
         if (test(K_ASSIGN))
-            r = new node(N_ASSIGN, v, expr());
+            r = new node(N_ASSIGN, new node(N_VARREF, v), expr());
         
         expect(K_SEMICOLON);
         return r;
@@ -350,14 +404,21 @@ void parse() {
             expect(K_LBRACKET);
             if (!test(K_RBRACKET)) {
                 do {
-                    var* v = get_var();
+                    var* v = get_var(false);
                     v->is_param = true;
                     f->params.push_back(v);
-                    f->v->vars.push_back(v);
+                    f->v->push(v);
                 } while (test(K_COMMA));
                 expect(K_RBRACKET);
             }
             
+            if (test(K_SEMICOLON)) {
+                f->body = nullptr;
+                envi = global;
+
+                funcs.push_back(f);
+                continue;
+            }
             if (tin.peek().ty != K_LBRACE)
                 throw unexpected_token("Expected {");
                 

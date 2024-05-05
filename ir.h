@@ -25,6 +25,7 @@ enum ir_type {
     I_NEQ,          // setne
     I_EQ,           // sete
     I_RAW,          // (raw assembly)
+    I_SGN,          // movsx
 };
 
 // Note: register is a keyword

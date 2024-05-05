@@ -43,6 +43,7 @@ std::map<std::string, token_type> tkmap {
     MAPPED("%=", K_MODEQ),
     MAPPED("++", K_PP),
     MAPPED("--", K_MM),
+    MAPPED("&", K_AND),
 };
 
 void tstream::tokenize(const std::string& what) {

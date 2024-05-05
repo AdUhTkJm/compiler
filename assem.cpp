@@ -86,11 +86,11 @@ void assemble_var(std::ostream& os) {
     // So we put everything in .bss, which is zero-initialised  
     os << "section .bss\n";
     for (auto x : global->vars) {  
-        os << format("{} resb {}\n", x->name, x->ty.sz);
+        os << format("{} resb {}\n", x->name, x->ty->sz);
     }
 }
 
-std::string reg_ofsize(std::string x, int sz) {
+std::string sized(std::string x, int sz) {
     if (x == "rbx") {
         if (sz == 8)
             return "rbx";
@@ -166,12 +166,16 @@ void assemble_func(std::ostream& os, func* f, std::vector<ir*>& irs) {
         case I_NEQ:
         case I_EQ:
             os << format("\tcmp {}, {}\n", r0, r1)
-            << format("\t{} {}\n", cmpmap[x->ty], reg_ofsize(r0, 1))
-            << format("\tmovzx {}, {}\n", r0, reg_ofsize(r0, 1));
+            << format("\t{} {}\n", cmpmap[x->ty], sized(r0, 1))
+            << format("\tmovzx {}, {}\n", r0, sized(r0, 1));
+            break;
+        case I_SGN:
+            os << format("\tmovsx {}, {}\n", r0, sized(r1, x->sz));
             break;
         case I_RET:
-            os << format("\tmov rax, {}\n", r0)
-            << format("\tjmp .Lfunc_end_{}\n", f->name);
+            if (x->a0)
+                os << format("\tmov rax, {}\n", r0);
+            os << format("\tjmp .Lfunc_end_{}\n", f->name);
             break;
         case I_LOCALREF: {
             std::string off = std::to_string(x->v->offset);
@@ -182,10 +186,10 @@ void assemble_func(std::ostream& os, func* f, std::vector<ir*>& irs) {
             os << format("\tlea {}, {}\n", r0, x->v->name);
             break;
         case I_STORE:
-            os << format("\tmov [{}], {}\n", r0, reg_ofsize(r1, x->sz));
+            os << format("\tmov [{}], {}\n", r0, sized(r1, x->sz));
             break;
         case I_LOAD:
-            os << format("\tmov {}, [{}]\n", reg_ofsize(r0, x->sz), r1);
+            os << format("\tmov {}, [{}]\n", sized(r0, x->sz), r1);
             break;
         case I_CALL: {
             int sz = x->params.size();
@@ -243,6 +247,12 @@ void assemble(std::ostream& os, decltype(generate())& irs) {
     os << "\n";
 
     for (auto [f, i] : irs) {
+        // This is only declaration.
+        if (i.empty()) {
+            os << format("extern {}\n", f->name);
+            continue;
+        }
+
         os << format("section .text\nglobal {}\n{}:\n", f->name, f->name) <<
         "\tpush rbp\n"
         "\tmov rbp, rsp\n";
@@ -251,12 +261,12 @@ void assemble(std::ostream& os, decltype(generate())& irs) {
         for (auto v : f->v->vars) {
             if (v->is_param)
                 continue;
-            v->offset = -(offset += v->ty.sz);
+            v->offset = -(offset += v->ty->sz);
         }
         for (int i = 0; i < f->params.size(); i++) {
             var* v = f->params[i];
             if (i < 6)
-                v->offset = -(offset += v->ty.sz);
+                v->offset = -(offset += v->ty->sz);
             else
                 v->offset = off_param += 8; // Every push grows stack by 8 bytes
         }
@@ -273,7 +283,7 @@ void assemble(std::ostream& os, decltype(generate())& irs) {
         // Copy arguments to stack
         for (int i = 0; i < f->params.size() & i < 6; i++) {
             var* v = f->params[i];
-            os << format("\tmov [rbp{}], {}\n", v->offset, reg_arg(i, v->ty.sz));
+            os << format("\tmov [rbp{}], {}\n", v->offset, reg_arg(i, v->ty->sz));
         }
 
         assemble_func(os, f, i);

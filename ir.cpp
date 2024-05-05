@@ -2,7 +2,6 @@
 #include "fmt/format.h"
 #include <map>
 #define MAPPED std::make_pair
-#define PUSH(x) res.push_back(new x)
 
 using fmt::format;
 
@@ -18,16 +17,6 @@ std::map<node_type, ir_type> opmap {
     MAPPED(N_GEQ, I_GEQ),
     MAPPED(N_NEQ, I_NEQ),
     MAPPED(N_EQ, I_EQ),
-};
-
-std::map<node_type, node_type> ndmap {
-    MAPPED(N_PLUSEQ, N_PLUS),
-    MAPPED(N_MINUSEQ, N_MINUS),
-    MAPPED(N_MULEQ, N_MUL),
-    MAPPED(N_DIVEQ, N_DIV),
-    MAPPED(N_MODEQ, N_MOD),
-    MAPPED(N_POSTINC, N_PLUSEQ),
-    MAPPED(N_POSTDEC, N_MINUSEQ),
 };
 
 ir::ir(ir_type ty, int imm, reg* a0):
@@ -51,142 +40,155 @@ reg::reg(): ind(cnt++) {}
 // The result of generate()
 std::vector<ir*> res;
 
-reg* gen_imm(node* ast) {
+template<class... T>
+void push(T... args) {
+    res.push_back(new ir(args...));
+}
+
+reg* gen_imm(node* x) {
     reg* a0 = new reg;
-    PUSH(ir(I_IMM, ast->val, a0));
+    push(I_IMM, x->val, a0);
     return a0;
 }
 
-reg* gen_addr(var* v) {
+reg* gen_expr(node*);
+reg* gen_addr(node* x) {
     reg* a0 = new reg;
 
-    if (v->is_global)
-        PUSH(ir(I_GLOBALREF, a0, v));
+    // since I_STORE needs pointer after all
+    if (x->ty == N_DEREF)
+        return gen_expr(x->lhs);
+
+    // here, x->ty == N_VARREF
+    if (x->target->is_global)
+        push(I_GLOBALREF, a0, x->target);
     else
-        PUSH(ir(I_LOCALREF, a0, v));
+        push(I_LOCALREF, a0, x->target);
 
     return a0;
 }
 
-reg* gen_expr(node* ast) {
-    // We cannot jump past initialisation of these variables in
-    // switch(), so we declare them here.
-    reg *a0, *a1, *a2;
+reg* gen_expr(node* x) {
+    reg *a0 = nullptr, *a1, *a2;
 
     static int if_cnt = 0;
     static int while_cnt = 0;
     static int for_cnt = 0;
 
-    switch (ast->ty) {
+    switch (x->ty) {
     case N_NUM:
-        return gen_imm(ast);
+        return gen_imm(x);
     case N_RET:
-        a0 = gen_expr(ast->lhs);
+        if (x->lhs)
+            a0 = gen_expr(x->lhs);
 
-        PUSH(ir(I_RET, a0));
+        push(I_RET, a0);
         return a0;
     case N_PLUS:
     case N_MINUS:
     case N_MUL:
     case N_DIV:
     case N_MOD:
+        a0 = gen_expr(x->lhs);
+        a1 = gen_expr(x->rhs);
+        
+        push(opmap[x->ty], a0, a1);
+        return a0;
     case N_EQ:
     case N_LEQ:
     case N_GEQ:
     case N_NEQ:
     case N_GE:
     case N_LE:
-        a0 = gen_expr(ast->lhs);
-        a1 = gen_expr(ast->rhs);
+        // Sign extension is needed for, eg., loading 4 bytes into r10.
+        a0 = new reg;
+        a1 = new reg;
         
-        PUSH(ir(opmap[ast->ty], a0, a1));
-        return a0;
-    case N_PLUSEQ:
-    case N_MINUSEQ:
-    case N_MULEQ:
-    case N_DIVEQ:
-    case N_MODEQ:
-        return gen_expr(new node(
-            N_ASSIGN, ast->target,
-            new node(ndmap[ast->ty], new node(N_VARREF, ast->target), ast->rhs)
-        ));
-    case N_POSTINC:
-    case N_POSTDEC:
-        a0 = gen_expr(new node(N_VARREF, ast->target));
-
-        gen_expr(new node(ndmap[ast->ty], ast->target, new node(N_NUM, 1)));
-
+        push(I_SGN, a0, gen_expr(x->lhs), x->cty->sz);
+        push(I_SGN, a1, gen_expr(x->rhs), x->cty->sz);
+        push(opmap[x->ty], a0, a1);
         return a0;
     case N_VARREF:
         a0 = new reg;
-        a1 = gen_addr(ast->target);
+        a1 = gen_addr(x);
 
-        PUSH(ir(I_LOAD, a0, a1, ast->target->ty.sz));
+        push(I_LOAD, a0, a1, x->cty->sz);
+        return a0;
+    case N_DEREF:
+        a0 = new reg;
+        a1 = gen_expr(x->lhs);
+
+        push(I_LOAD, a0, a1, x->cty->sz);
+        return a0;
+    case N_ADDR:
+        a0 = gen_addr(x->lhs);
+
         return a0;
     case N_ASSIGN:
-        a0 = gen_addr(ast->target);
-        a1 = gen_expr(ast->rhs);
+        a0 = gen_addr(x->lhs);
+        a1 = gen_expr(x->rhs);
 
-        PUSH(ir(I_STORE, a0, a1, ast->target->ty.sz));
+        push(I_STORE, a0, a1, x->cty->sz);
         return a1; // !! We need value rather than address
-    case N_BLOCK:
-        for (auto m : ast->nodes)
-            gen_expr(m);
-        return nullptr;
+    case N_BLOCK:      
+        for (auto m : x->nodes)
+            a0 = gen_expr(m);
+
+        return a0;
     case N_FCALL: {
         a0 = new reg;
 
         ir* i = new ir(I_CALL, a0);
-        for (auto m : ast->nodes)
+        for (auto m : x->nodes)
             i->params.push_back(gen_expr(m));
-        i->name = ast->name;
+        i->name = x->name;
         res.push_back(i);
         return a0;
     }
     case N_IF:
-        a0 = gen_expr(ast->cond);
-        PUSH(ir(I_IF, if_cnt, a0));
+        a0 = gen_expr(x->cond);
+        push(I_IF, if_cnt, a0);
 
-        gen_expr(ast->lhs);
+        gen_expr(x->lhs);
 
-        if (ast->rhs) {
-            PUSH(ir(format("jmp .Lif_{}_end", if_cnt)));
-            PUSH(ir(format(".Lif_{}_unhit:", if_cnt)));
-            gen_expr(ast->rhs);
-            PUSH(ir(format(".Lif_{}_end:", if_cnt)));
+        if (x->rhs) {
+            push(format("jmp .Lif_{}_end", if_cnt));
+            push(format(".Lif_{}_unhit:", if_cnt));
+            gen_expr(x->rhs);
+            push(format(".Lif_{}_end:", if_cnt));
         } else {
-            PUSH(ir(format(".Lif_{}_unhit:", if_cnt)));
+            push(format(".Lif_{}_unhit:", if_cnt));
         }
         
         if_cnt++;
         return a0;
     case N_WHILE:
-        PUSH(ir(format(".Lwhile_{}_begin:", while_cnt)));
-        a0 = gen_expr(ast->cond);
-        PUSH(ir(I_WHILE, while_cnt, a0));
-        gen_expr(ast->lhs);
-        PUSH(ir(format("jmp .Lwhile_{}_begin", while_cnt)));
-        PUSH(ir(format(".Lwhile_{}_end:", while_cnt)));
+        push(format(".Lwhile_{}_begin:", while_cnt));
+        a0 = gen_expr(x->cond);
+        push(I_WHILE, while_cnt, a0);
+        gen_expr(x->lhs);
+        push(format("jmp .Lwhile_{}_begin", while_cnt));
+        push(format(".Lwhile_{}_end:", while_cnt));
         
         while_cnt++;
         return a0;
     case N_FOR:
-        if (ast->init)
-            gen_expr(ast->init);
+        if (x->init)
+            gen_expr(x->init);
 
-        PUSH(ir(format(".Lfor_{}_begin:", for_cnt)));
-        a0 = gen_expr(ast->cond);
-        PUSH(ir(I_FOR, for_cnt, a0));
-        gen_expr(ast->lhs);
-        if (ast->step)
-            gen_expr(ast->step);
-        PUSH(ir(format("jmp .Lfor_{}_begin", for_cnt)));
-        PUSH(ir(format(".Lfor_{}_end:", for_cnt)));
+        push(format(".Lfor_{}_begin:", for_cnt));
+        a0 = gen_expr(x->cond);
+        push(I_FOR, for_cnt, a0);
+        gen_expr(x->lhs);
+        if (x->step)
+            gen_expr(x->step);
+        push(format("jmp .Lfor_{}_begin", for_cnt));
+        push(format(".Lfor_{}_end:", for_cnt));
 
         for_cnt++;
         return a0;
     default:
-        throw ast->ty;
+        throw x->ty;
     }
 }
 
@@ -194,7 +196,8 @@ std::map<func*, std::vector<ir*>> generate() {
     decltype(generate()) p;
     for (auto f : funcs) {
         res.clear();
-        gen_expr(f->body);
+        if (f->body)
+            gen_expr(f->body);
         p[f] = res;
     }
     

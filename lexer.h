@@ -41,6 +41,7 @@ enum token_type {
     K_SHORT,        // short
     K_CHAR,         // char
     K_VOID,         // void
+    K_AND,          // &
 };
 
 struct token {

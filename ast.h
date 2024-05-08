@@ -39,25 +39,42 @@ struct type {
 
     type* ptr_to;
 
+    // Size of the array.
+    // If this is an array, then ptr_to is its elements' type.
+    // -1 means unknown; needs to be determined based on initialiser.
+    int asz;
+
+    // Used when this is a function pointer.
+    type* ret;
+    std::vector<type*> params;
+
+    bool is_const;
+
     explicit type(int=0);
-    explicit type(type*);
 
     bool operator==(type);
     bool operator!=(type);
 
     static int get_size(int);
+    static type* ptr(type*);
+    static type* arr(type*, int);
+    static type* fn(type*, std::vector<type*>);
 };
 
 struct var {
     type* ty;
     std::string name;
+
+    // Only used for string literal
+    bool is_strlit;
+    std::string value;
     
     bool is_global;
     bool is_param;
 
     int offset;
 
-    var(): is_global(false), is_param(false), offset(0) {}
+    var(): is_global(false), is_param(false), is_strlit(false), offset(0) {}
 };
 
 // Environment
@@ -67,7 +84,7 @@ struct env {
 
     void push(var*);
 
-    env(env* father=nullptr);
+    explicit env(env* father=nullptr);
 };
 
 // A node of AST.
@@ -75,6 +92,7 @@ struct node {
     node_type ty;
     
     // Value of number literals
+    // Value of excessive arguments for a variadic function
     int val;
 
     // Operands
@@ -104,6 +122,8 @@ struct node {
     bool is_lval;
     // means "type in C"
     type* cty;
+    // for first time assignment
+    bool ignore_const;
     
 
     node(node_type ty, int val);
@@ -118,7 +138,11 @@ struct func {
     env* v;
     type* ret;
 
+    bool is_variadic;
+
     std::vector<var*> params;
+
+    func(): is_variadic(false) {}
 };
 
 extern std::vector<func*> funcs;

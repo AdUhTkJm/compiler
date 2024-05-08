@@ -17,9 +17,33 @@ node::node(node_type ty, var* target, node* rhs):
 
 env::env(env* father): father(father) { }
 
-type::type(int ty): ty(ty), sz(get_size(ty)) { }
+type::type(int ty): ty(ty), sz(get_size(ty)), is_const(false) { }
 
-type::type(type* ptr): ty(K_MUL), sz(8), ptr_to(ptr) {  }
+type* type::ptr(type* p) {
+    type* t = new type(K_MUL);
+    t->ptr_to = p;
+    t->sz = 8;
+    t->is_const = false;
+    return t;
+}
+
+type* type::arr(type* p, int sz) {
+    type* t = new type(K_LBRACKET);
+    t->ptr_to = p;
+    t->asz = sz;
+    t->sz = sz * p->sz;
+    t->is_const = true;
+    return t;
+}
+
+type* type::fn(type* ret, std::vector<type*> param) {
+    type* t = new type(K_LPARENS);
+    t->params = param;
+    t->ret = ret;
+    t->sz = 8;
+    t->is_const = true;
+    return t;
+}
 
 void env::push(var* v) {
     vars.push_back(v);
@@ -45,6 +69,7 @@ int type::get_size(int x) {
         MAPPED(K_LONG, 8),
         MAPPED(K_SHORT, 2),
         MAPPED(K_VOID, 1),
+        MAPPED(K_MUL, 8),
     };
     return szof[x];
 }
@@ -66,6 +91,19 @@ bool is_type() {
     return false;
 }
 
+// Determines if the next token is a type name or a cv_qualifier.
+// Does not consume.
+bool is_cv_type() {
+    static token_type cv[] = {
+        K_CONST
+    };
+    token_type t = tin.peek().ty;
+
+    if (std::find(cv, cv + sizeof cv, t) != cv + sizeof cv)
+        return true;
+    return is_type();
+}
+
 bool is_int_type(type* t) {
     static token_type tys[] = {
         K_INT, K_CHAR, K_LONG, K_SHORT
@@ -76,55 +114,132 @@ bool is_int_type(type* t) {
     return false;
 }
 
-// Gets a simple type (i.e. not things like void (*)(int))
-// Consumes all the way up to what's needed.
-type* get_simple_type() {
-    token t = tin.consume();
-    type* res = new type(t.ty);
-    switch (t.ty) {
-    case K_INT:
-        res->sz = 4;
-        break;
-    case K_LONG:
-        res->sz = 8;
-        break;
-    case K_CHAR:
-        res->sz = 1;
-        break;
-    case K_SHORT:
-        res->sz = 2;
-        break;
-    case K_VOID:
-        res->sz = 1; // So that void* behaves correctly.
-        break;
-    default:
-        throw unexpected_token("Type not recognised");
-    }
+void qualify(type* ty) {
+    while (test(K_CONST))
+        ty->is_const = true;
+}
 
-    while (test(K_MUL))
-        res = new type(res);
-    
+type* type_spec() {
+    type* res = new type;
+
+    qualify(res);
+    if (!is_type())
+        throw unexpected_token("Type not recognised");
+    token t = tin.consume();
+    res->ty = t.ty;
+    res->sz = type::get_size(t.ty);
+    qualify(res);
+
     return res;
 }
 
-// Gets the declaration of the whole variable.
-// Consumes all the way up to what's needed.
-var* get_var(bool named = true) {
-    var* res = new var;
-    type* t = get_simple_type();
-    
-    if (t->ty == K_VOID)
-        throw unexpected_token("Void is not a valid type for variables");
+// For function return types.
+// They only return simple types or a pointer.
+type* read_ptr() {
+    type* ty = type_spec();
+    while (test(K_MUL))
+        ty = type::ptr(ty);
+    return ty;
+}
 
-    res->ty = t;
+type* decl(type*, std::string&);
+type* full_decl(std::string&);
+type* direct_decl(type* base, std::string& name) {
+    bool delayed = false;
+    int ret_point = 0;
+    if (test(K_LPARENS)) {
+        ret_point = tin.save();
+        while (!test(K_RPARENS))
+            tin.consume();
+        delayed = true;
+    }
+    type* ty = base;
+    qualify(ty);
 
-    if (tin.peek().ty != K_IDENT)
-        if (named)
-            throw unexpected_token("Expected identifier");
-        else return res;
+    token t = tin.peek();
+    if (t.ty == K_IDENT) {
+        name = t.ident;
+        tin.consume();
+    }
     
-    res->name = tin.consume().ident;
-    return res;
+    bool is_array = false;
+    while (test(K_LBRACKET)) {
+        is_array = true;
+        if (test(K_RBRACKET)) {
+            ty = type::arr(ty, -1);
+            continue;
+        }
+        
+        token t = tin.consume();
+        if (t.ty != K_NUM)
+            throw unexpected_token("Array length must be constant");
+        if (t.val <= 0)
+            throw unexpected_token("Expected positive array length");
+        ty = type::arr(ty, t.val);
+        expect(K_RBRACKET);
+    }
+    
+    if (is_array && test(K_LPARENS))
+        throw unexpected_token("Array of functions is not allowed");
+    
+    if (test(K_LPARENS) && !test(K_RPARENS)) {
+        std::vector<type*> param;
+        do {
+            std::string no_name;
+            type* t = full_decl(no_name);
+            if (no_name != "")
+                throw unexpected_token("Arguments can't be named for function pointers");
+            param.push_back(t);
+        } while (test(K_COMMA));
+
+        expect(K_RPARENS);
+
+        ty = type::fn(ty, param);
+    }
+
+    if (delayed) {
+        int end_point = tin.save();
+        tin.load(ret_point);
+        ty = decl(ty, name);
+        expect(K_RPARENS);
+        tin.load(end_point);
+    }
+
+    return ty;
+}
+
+type* decl(type* base, std::string& name) {
+    type* ty = base;
+    while (test(K_MUL))
+        ty = type::ptr(ty);
+
+    return direct_decl(ty, name);
+}
+
+type* full_decl(std::string& name) {
+    type* base = type_spec();
+    return decl(base, name);
+}
+
+var* get_var(bool must_name = true) {
+    var* v = new var;
+    v->ty = full_decl(v->name);
+    if (must_name && v->name == "")
+        throw unexpected_token("Expected variable name");
+    return v;
+}
+
+// If base is null, then fulfuill base;
+// If not, then take base as granted and do not call type_spec()
+var* get_base_var(type*& base) {
+    var* v = new var;
+
+    if (!base)
+        base = type_spec();
+    v->ty = decl(base, v->name);
+    if (v->name == "")
+        throw unexpected_token("Expected variable name");
+    return v;
 }
 
 var* resolve(std::string name) {
@@ -138,9 +253,11 @@ var* resolve(std::string name) {
 
 node* expr();
 node* primary() {
-    if (test(K_LBRACKET)) {
+    static int str_cnt = 0;
+
+    if (test(K_LPARENS)) {
         node* t = expr();
-        expect(K_RBRACKET);
+        expect(K_RPARENS);
         return t;
     }
 
@@ -148,14 +265,14 @@ node* primary() {
         token t = tin.consume();
 
         // Function call
-        if (test(K_LBRACKET)) {
+        if (test(K_LPARENS)) {
             node* k = new node(N_FCALL);
 
             k->name = t.ident;
 
-            if (!test(K_RBRACKET)) {
+            if (!test(K_RPARENS)) {
                 do k->nodes.push_back(expr()); while (test(K_COMMA));
-                expect(K_RBRACKET);
+                expect(K_RPARENS);
             }
 
             return k;
@@ -166,6 +283,20 @@ node* primary() {
     }
 
     token x = tin.consume();
+
+    // String literal
+    if (x.ty == K_STR) {
+        var* v = new var;
+        v->name = "__builtin_str_" + std::to_string(++str_cnt);
+        v->ty = new type(K_CHAR);
+        v->is_strlit = true;
+        v->is_global = true;
+        v->value = x.ident;
+        global->push(v);
+        return new node(N_ADDR, new node(N_VARREF, v));
+    }
+
+    // Numeric literal
     if (x.ty == K_NUM)
         return new node(N_NUM, x.val);
 
@@ -185,7 +316,7 @@ node* unary() {
     if (test(K_MINUS))
         return new node(N_MINUS, new node(N_NUM, 0), unary());
     if (test(K_PLUS))
-        ;
+        return unary(); // Can't ignore here; otherwise (+- -+2) will not work
 
     if (test(K_MUL))
         return new node(N_DEREF, unary());
@@ -195,34 +326,40 @@ node* unary() {
     node* t = primary();
     
     k = tin.peek();
+    // Note: a++++ isn't allowed
     if (test(K_PP) || test(K_MM))
         if (t->ty != N_VARREF)
             throw unexpected_token("Expected identifier before ++/--");
         else
             return new node(k.ty == K_PP ? N_POSTINC : N_POSTDEC, t);
-    
+    // Left grouping, same as +-*/%
+    while (test(K_LBRACKET)) {
+        node* rhs = expr();
+        expect(K_RBRACKET);
+        t = new node(N_DEREF, new node(N_PLUS, t, rhs));
+    }
+
     return t;
 }
 
 node* factor() {
     node* t = unary();
 
-    if (test(K_MUL))
-        return new node(N_MUL, t, factor());
-    if (test(K_DIV))
-        return new node(N_DIV, t, factor());
-    if (test(K_MOD))
-        return new node(N_MOD, t, factor());
+    for (token_type ty = tin.peek().ty; ty == K_MUL || ty == K_DIV || ty == K_MOD; ty = tin.peek().ty) {
+        tin.consume();
+        t = new node(ty == K_MUL ? N_MUL : ty == K_DIV ? N_DIV : N_MOD, t, unary());
+    }
     
     return t;
 }
 
 node* term() {
     node* t = factor();
-    if (test(K_MINUS))
-        return new node(N_MINUS, t, term());
-    if (test(K_PLUS))
-        return new node(N_PLUS, t, term());
+
+    for (token_type ty = tin.peek().ty; ty == K_PLUS || ty == K_MINUS; ty = tin.peek().ty) {
+        tin.consume();
+        t = new node(ty == K_PLUS ? N_PLUS : N_MINUS, t, factor());
+    }
     
     return t;
 }
@@ -286,13 +423,24 @@ node* stmt() {
     }
 
     // Declaration
-    if (is_type()) {
-        var* v = get_var();
-        envi->push(v);
+    if (is_cv_type()) {
+        type* base = nullptr;
+        // Note that as long as envi does not change,
+        // this does not influence scope
+        node* r = new node(N_BLOCK);
+        var* v;
+        
+        do {
+            v = get_base_var(base);
+            envi->push(v);
 
-        node* r = nullptr;
-        if (test(K_ASSIGN))
-            r = new node(N_ASSIGN, new node(N_VARREF, v), expr());
+            if (test(K_ASSIGN)) {
+                node* t = new node(N_ASSIGN, new node(N_VARREF, v), expr());
+                t->ignore_const = true;
+                r->nodes.push_back(t);
+            }
+
+        } while (test(K_COMMA));
         
         expect(K_SEMICOLON);
         return r;
@@ -301,9 +449,9 @@ node* stmt() {
     // if-statement
     if (test(K_IF)) {
         node* t = new node(N_IF);
-        expect(K_LBRACKET);
+        expect(K_LPARENS);
         t->cond = expr();
-        expect(K_RBRACKET);
+        expect(K_RPARENS);
         t->lhs = stmt();
 
         if (test(K_ELSE))
@@ -315,9 +463,9 @@ node* stmt() {
     // while-statement
     if (test(K_WHILE)) {
         node* t = new node(N_WHILE);
-        expect(K_LBRACKET);
+        expect(K_LPARENS);
         t->cond = expr();
-        expect(K_RBRACKET);
+        expect(K_RPARENS);
         t->lhs = stmt();
         return t;
     }
@@ -325,7 +473,7 @@ node* stmt() {
     // for-statement
     if (test(K_FOR)) {
         node* t = new node(N_FOR);
-        expect(K_LBRACKET);
+        expect(K_LPARENS);
 
         env* old = envi;
         env* v = new env(envi);
@@ -351,9 +499,9 @@ node* stmt() {
         } else t->cond = new node(N_NUM, 1);
         
         // step
-        if (!test(K_RBRACKET)) {
+        if (!test(K_RPARENS)) {
             t->step = expr();
-            expect(K_RBRACKET);
+            expect(K_RPARENS);
         } else t->step = nullptr;
 
         t->lhs = stmt();
@@ -390,26 +538,30 @@ void parse() {
         bool isfunc = false;
         
         tin.save();
-        get_simple_type();
-        expect(K_IDENT);
-        isfunc = test(K_LBRACKET);
+        read_ptr();
+        while (test(K_MUL));
+        isfunc = test(K_IDENT) && test(K_LPARENS);
         tin.load();
 
-        // declarations not yet supported.
         if (isfunc) {
             func* f = new func;
-            f->ret = get_simple_type();
+            f->ret = read_ptr();
             f->name = tin.consume().ident;
             f->v = envi = new env(global);
-            expect(K_LBRACKET);
-            if (!test(K_RBRACKET)) {
+            expect(K_LPARENS);
+            if (!test(K_RPARENS)) {
                 do {
+                    // Variadic arguments; must be final one in argument list
+                    if (test(K_DOTS)) {
+                        f->is_variadic = true;
+                        break;
+                    }
                     var* v = get_var(false);
                     v->is_param = true;
                     f->params.push_back(v);
                     f->v->push(v);
                 } while (test(K_COMMA));
-                expect(K_RBRACKET);
+                expect(K_RPARENS);
             }
             
             if (test(K_SEMICOLON)) {

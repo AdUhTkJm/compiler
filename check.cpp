@@ -33,6 +33,9 @@ bool operator==(type* ty, implicit im) {
     // void* converts to every pointer type
     if (ty->ty == K_MUL && im.t->ty == K_MUL && (im.t->ptr_to->ty == K_VOID || ty->ptr_to->ty == K_VOID))
         return true;
+    // T[] converts to T*
+    if (im.t->ty == K_LBRACKET && ty->ty == K_MUL && *im.t->ptr_to == *ty->ptr_to)
+        return true;
 
     return false;
 }
@@ -75,6 +78,17 @@ type* infer_type(type* a, type* b) {
     throw semantic_error("Unknown type error");
 }
 
+void decay(node*& x) {
+    if (x->cty->ty != K_LBRACKET)
+        return;
+    
+    // Copy x; otherwise segmentation fault
+    node* z = new node(*x);
+    node y(N_ADDR, z);
+    y.cty = type::ptr(x->cty->ptr_to);
+    *x = y;
+}
+
 void check_node(func* f, node* x) {    
     switch (x->ty) {
     case N_NUM:
@@ -89,26 +103,40 @@ void check_node(func* f, node* x) {
     case N_DEREF:
         check_node(f, x->lhs);
         assert(x->lhs->cty->ty == K_MUL, "Dereferencing non-pointer");
+        assert(x->lhs->cty->ptr_to->ty != K_VOID, "Cannot dereference void*");
         x->cty = x->lhs->cty->ptr_to;
         x->is_lval = true;
+        decay(x); // x->lhs might itself be a pointer to array
         break;
     case N_ADDR:
         check_node(f, x->lhs);
+        // When & is directly operating on an array, the array does not decay
+        if (x->lhs->ty == N_ADDR && x->lhs->lhs->ty == N_VARREF && x->lhs->lhs->cty->ty == K_LBRACKET)
+            x->lhs = x->lhs->lhs;
+        
         assert(x->lhs->is_lval, "Lvalue expected");
-        x->cty = new type(x->lhs->cty);
+        x->cty = type::ptr(x->lhs->cty);
         x->is_lval = false;
         break;
     case N_PLUS:
     case N_MINUS:
         check_node(f, x->lhs);
+        check_node(f, x->rhs);
+        // For pointer addition, we need to multiply another operand by the size of underlying type.
+        // TODO: add special treatment for function pointers.
         if (x->lhs->cty->ty == K_MUL) {
             x->rhs = new node(N_MUL, x->rhs, new node(N_NUM, x->lhs->cty->ptr_to->sz));
             check_node(f, x->rhs);
             assert(is_int_type(x->rhs->cty), "Pointers addition is only compatible with int");
             x->cty = x->lhs->cty;
             break;
+        } else if (x->rhs->cty->ty == K_MUL) {
+            x->lhs = new node(N_MUL, x->lhs, new node(N_NUM, x->rhs->cty->ptr_to->sz));
+            check_node(f, x->lhs);
+            assert(is_int_type(x->lhs->cty), "Pointers addition is only compatible with int");
+            x->cty = x->rhs->cty;
+            break;
         } else {
-            check_node(f, x->rhs);
             x->cty = infer_type(x->lhs->cty, x->rhs->cty);
         }
         x->is_lval = false;
@@ -129,7 +157,9 @@ void check_node(func* f, node* x) {
     case N_LE:
         check_node(f, x->lhs);
         check_node(f, x->rhs);
-        infer_type(x->lhs->cty, x->rhs->cty);
+        // Either numerical or pointer
+        assert(is_int_type(x->lhs->cty) && is_int_type(x->rhs->cty) ||
+            *x->lhs->cty == *x->rhs->cty && x->lhs->cty->ty == K_MUL, "Incompatible types of equality test");
         x->cty = new type(K_INT);
         x->is_lval = false;
         break;
@@ -141,7 +171,7 @@ void check_node(func* f, node* x) {
         check_node(f, x->lhs);
 
         var* v = new var;
-        v->ty = new type(x->lhs->cty);
+        v->ty = type::ptr(x->lhs->cty);
         f->v->push(v);
 
         node y(N_BLOCK);
@@ -159,7 +189,7 @@ void check_node(func* f, node* x) {
         check_node(f, x->lhs);
 
         var* p = new var;
-        p->ty = new type(x->lhs->cty);
+        p->ty = type::ptr(x->lhs->cty);
         f->v->push(p);
 
         var* v = new var;
@@ -181,12 +211,17 @@ void check_node(func* f, node* x) {
     case N_VARREF:
         x->cty = x->target->ty;
         x->is_lval = true;
+        decay(x);
         break;
     case N_ASSIGN:
         check_node(f, x->lhs);
         check_node(f, x->rhs);
+
         assert(x->lhs->is_lval, "Lvalue expected");
         assert(x->lhs->cty == implicit(x->rhs->cty), "Assignment type mismatch");
+        assert(x->lhs->cty->ty != K_LBRACKET, "No assignment to array");
+        assert(x->ignore_const || !x->lhs->cty->is_const, "No assignment to const variable");
+
         x->cty = x->lhs->cty;
         x->is_lval = false;
         break;
@@ -195,7 +230,7 @@ void check_node(func* f, node* x) {
             check_node(f, m);
         break;
     case N_FCALL: {
-        assert(fs[x->name].size(), "Function {} not found", f->name);
+        assert(fs[x->name].size(), "Function {} not found", x->name);
             
         const auto& fn = fs[x->name][0];
         const auto& fp = fn->params;
@@ -204,9 +239,11 @@ void check_node(func* f, node* x) {
         for (auto m : args)
             check_node(f, m);
 
-        assert(fp.size() == args.size(), "Arguments count doesn't match for {}", fn->name);
+        assert(fn->is_variadic || fp.size() == args.size(), "Argument count doesn't match for {}", fn->name);
+        assert(fp.size() <= args.size(), "Function {} does not have enough arguments", fn->name);
         for (int i = 0; i < fp.size(); i++)
             assert(fp[i]->ty == implicit(args[i]->cty), "Arguments #{} don't match for {}", i, fn->name);
+        x->val = args.size() - fp.size();
         x->is_lval = false;
         x->cty = fn->ret;
         break;

@@ -8,11 +8,11 @@
 
 using fmt::format;
 
-// There are 7 registers for x86 that we can use.
-// They are r10 to r15 and rbx.
 // Other registers are unused because they are of different uses (eg. function arguments)
-reg* used[7] = { 0 };
-const char* regs[] = { "r10", "r11", "r12", "r13", "r14", "r15", "rbx" };
+// Perhaps fix this later.
+const char* regs[] = { "r10", "r11", "r12", "r13", "r14", "r15", "rbx", "rdi" };
+const int rsz = sizeof(regs) / sizeof(const char*);
+reg* used[rsz] = { 0 };
 
 std::map<ir_type, std::string> cmpmap {
     MAPPED(I_LE, "setl"),
@@ -29,13 +29,15 @@ int round_up(int val, int x) {
     return ceil(1.0 * val / x) * x;
 }
 
-void assign(reg* a) {
+bool assign(func* f, reg* a) {
     if (!a)
-        return;
+        return true;
 
     bool found = false;
     
-    for (int i = 0; i < 7; i++) {
+    // We preserve the final register as a destination of spilling
+    // All spilt registers store their values there
+    for (int i = 0; i < rsz - 2; i++) {
         if (used[i] && used[i]->last > a->first)
             continue;
         used[i] = a;
@@ -44,13 +46,12 @@ void assign(reg* a) {
         break;
     }
     
-    // TODO: consider times when we need more than 7 registers.
-    if (!found)
-        std::cout << "Not found!!" << std::endl;
+    return found;
 }
 
-void tidy_register(std::vector<ir*>& irs) {
-    std::vector<reg*> regs;
+// Returns how many registers we need to push & pop
+int tidy_register(func* f, std::vector<ir*>& irs) {
+    std::vector<reg*> rs;
     // instruction counter
     // starts at 1, so that !first will not fail
     int ic = 1;
@@ -60,57 +61,74 @@ void tidy_register(std::vector<ir*>& irs) {
     for (int i = 0; i < irs.size(); i++, ic++) {
         auto x = irs[i];
 
+        // a1 never gets newly defined
         if (x->a0 && !x->a0->first) {
-            regs.push_back(x->a0);
+            rs.push_back(x->a0);
             x->a0->first = ic;
         }
         
-        // a1 and a2 never gets newly defined
         if (x->a0)
             x->a0->last = std::max(x->a0->last, ic);
         if (x->a1)
             x->a1->last = std::max(x->a1->last, ic);
-        if (x->a2)
-            x->a2->last = std::max(x->a2->last, ic);
         if (x->params.size())
             for (auto r : x->params)
                 r->last = std::max(r->last, ic);
     }
 
-    std::for_each(regs.begin(), regs.end(), assign);
+    std::sort(rs.begin(), rs.end(), [](reg* a, reg* b) {
+        return a->first < b->first;
+    });
+    for (auto r : rs) {
+        if (assign(f, r))
+            continue;
+        
+        var* v = new var;
+        v->ty = type::ptr(new type(K_INT));
+        f->v->push(v);
+
+        r->spilt = true;
+        r->dest = v;
+        r->real = 0;
+    }
+
+    int max = 0;
+    for (auto r : rs)
+        max = std::max(max, r->real);
+    return std::max(0, max - 1);
 }
 
 void assemble_var(std::ostream& os) {
     // All explicitly initialised variables should go into data segment
-    // But we do not support explicit initialisation yet
-    // So we put everything in .bss, which is zero-initialised  
+    os << "section .data\n";
+    for (auto x : global->vars)
+        if (x->is_strlit) {
+            os << format("{}: db ", x->name);
+            // To avoid things like, say, \n in strings
+            // getting printed out as a new line rather than as "\\n"
+            for (auto x : x->value)
+                os << format("{}, ", (int) x);
+            os << "0\n";
+        }
+    
+    // The rest of everything is in .bss, which is zero-initialised  
     os << "section .bss\n";
-    for (auto x : global->vars) {  
-        os << format("{} resb {}\n", x->name, x->ty->sz);
-    }
+    for (auto x : global->vars)
+        if (!x->is_strlit)
+            os << format("{} resb {}\n", x->name, x->ty->sz);
+    
 }
 
 std::string sized(std::string x, int sz) {
-    if (x == "rbx") {
-        if (sz == 8)
-            return "rbx";
-        if (sz == 4)
-            return "ebx";
-        if (sz == 2)
-            return "bx";
-        if (sz == 1)
-            return "bl";
-    }
-    if (sz == 8)
-        return x;
-    if (sz == 4)
-        return x + "d";
-    if (sz == 2)
-        return x + "w";
-    if (sz == 1)
-        return x + "b";
+    if (sz & (sz - 1) || sz > 8)
+        return "UNSUPPORTED SIZE " + std::to_string(sz);
+
+    if (x == "rbx")
+        return sz == 8 ? "rbx" : sz == 4 ? "ebx" : sz == 2 ? "bx" : "bl";
+    if (x == "rdi")
+        return sz == 8 ? "rdi" : sz == 4 ? "ebx" : sz == 2 ? "di" : "dil";
     
-    return "UNSUPPORTED SIZE " + std::to_string(sz);
+    return x + (sz == 8 ? "" : sz == 4 ? "d" : sz == 2 ? "w" : "b");
 }
 
 // We assume i < 6.
@@ -125,12 +143,39 @@ std::string reg_arg(int i, int sz = 8) {
     return (sz == 8 ? rs8 : sz == 4 ? rs4 : sz == 2 ? rs2 : rs1)[i];
 }
 
-void assemble_func(std::ostream& os, func* f, std::vector<ir*>& irs) {
-    tidy_register(irs);
+bool spilt(ir* x) {
+    return x->a0 && x->a0->spilt || x->a1 && x->a1->spilt;
+}
+
+void assemble_func(std::ostream& os, func* f, std::vector<ir*>& irs, bool reassigned = false) {
     for (auto x : irs) {
         auto r0 = regs[x->a0 ? x->a0->real : 0];
         auto r1 = regs[x->a1 ? x->a1->real : 0];
-        auto r2 = regs[x->a2 ? x->a2->real : 0];
+
+        // Allocate spilt registers
+        // We do not do this in tidy_registers(), because
+        // it might assign to the same register twice,
+        // in difference instructions
+        if (spilt(x) && !reassigned) {
+            std::vector<ir*> sp;
+            if (x->a0 && x->a0->spilt) {
+                x->a0->real = rsz - 2;
+                sp.push_back(new ir(I_SPILL_LOAD, regs[rsz - 2], x->a0->dest));
+            }
+            if (x->a1 && x->a1->spilt) {
+                sp.push_back(new ir(I_SPILL_LOAD, regs[rsz - 1], x->a1->dest));
+                if (x->a0 != x->a1)
+                    x->a1->real = rsz - 1;
+            }
+
+            sp.push_back(x);
+
+            if (x->a0 && x->a0->spilt)
+                sp.push_back(new ir(I_SPILL_STORE, regs[rsz - 2], x->a0->dest));
+
+            assemble_func(os, f, sp, true);
+            continue;
+        }
         
         switch (x->ty) {
         case I_IMM:
@@ -169,9 +214,6 @@ void assemble_func(std::ostream& os, func* f, std::vector<ir*>& irs) {
             << format("\t{} {}\n", cmpmap[x->ty], sized(r0, 1))
             << format("\tmovzx {}, {}\n", r0, sized(r0, 1));
             break;
-        case I_SGN:
-            os << format("\tmovsx {}, {}\n", r0, sized(r1, x->sz));
-            break;
         case I_RET:
             if (x->a0)
                 os << format("\tmov rax, {}\n", r0);
@@ -190,11 +232,23 @@ void assemble_func(std::ostream& os, func* f, std::vector<ir*>& irs) {
             break;
         case I_LOAD:
             os << format("\tmov {}, [{}]\n", sized(r0, x->sz), r1);
+            // In case the front bits of r0 has been used and not emptied
+            if (x->sz != 8)
+                os << format("\tmovsx {}, {}\n", r0, sized(r0, x->sz));
+            break;
+        case I_SPILL_STORE:
+            os << format("\tmov [rbp{}], {}\n", x->v->offset, x->name);
+            break;
+        case I_SPILL_LOAD:
+            os << format("\tmov {}, [rbp{}]\n", x->name, x->v->offset);
             break;
         case I_CALL: {
             int sz = x->params.size();
             for (int i = 0; i < std::min(6, sz); i++)
                 os << format("\tmov {}, {}\n", reg_arg(i), regs[x->params[i]->real]);
+            
+            // Variadic function must pass excessive argument amount to %al
+            os << format("\tmov al, {}\n", x->imm);
             
             // Caller-preserved registers
             os << "\tpush r10\n\tpush r11\n";
@@ -202,10 +256,6 @@ void assemble_func(std::ostream& os, func* f, std::vector<ir*>& irs) {
             // Push excessive arguments to the stack
             for (int i = std::min(6, sz); i < sz; i++)
                 os << format("\tpush {}\n", regs[x->params[i]->real]);
-
-            // main() shall return 0 if it doesn't explicitly return
-            // otherwise unspecified return value is UB, so do whatever
-            os << "\tmov rax, 0\n";
 
             os << format("\tcall {}\n", x->name);
 
@@ -246,17 +296,27 @@ void assemble(std::ostream& os, decltype(generate())& irs) {
     assemble_var(os);
     os << "\n";
 
-    for (auto [f, i] : irs) {
-        // This is only declaration.
+    // List of callee-preserved registers we use
+    static std::string hold[] = { "r12", "r13", "r14", "r15", "rbx" };
+
+    for (auto& [f, i] : irs) {
+        // Case: Declaration only
         if (i.empty()) {
             os << format("extern {}\n", f->name);
             continue;
         }
 
+        // Tidy registers before anything happens,
+        // since this changes the vector<ir*>
+        // Also records how many registers we used that we have to preserve
+        int amt = tidy_register(f, i);
+
+        // Case: Definition
         os << format("section .text\nglobal {}\n{}:\n", f->name, f->name) <<
         "\tpush rbp\n"
         "\tmov rbp, rsp\n";
 
+        // Assign an offset to all local variables
         int offset = 0, off_param = 8;
         for (auto v : f->v->vars) {
             if (v->is_param)
@@ -272,13 +332,16 @@ void assemble(std::ostream& os, decltype(generate())& irs) {
         }
         
         // rsp must get aligned to a multiple to 16 by calling convention
-        // since we pushed 5 registers, we need to complement another 8 bytes
-        os << format("\tsub rsp, {}\n", round_up(offset, 16) + 8);
+        // we pushed #amt registers, so rsp is decreased by 8 * amt,
+        // which we also need to take into account
+        int align = round_up(offset, 8);
+        if ((align + amt * 8) % 16)
+            align += 8;
+        os << format("\tsub rsp, {}\n", align);
         
         // Preserve registers by calling convention
-        for (int i = 12; i <= 15; i++)
-            os << format("\tpush r{}\n", i);
-        os << format("\tpush rbx\n");
+        for (int i = 0; i < amt; i++)
+            os << format("\tpush {}\n", hold[i]);
 
         // Copy arguments to stack
         for (int i = 0; i < f->params.size() & i < 6; i++) {
@@ -290,9 +353,8 @@ void assemble(std::ostream& os, decltype(generate())& irs) {
 
         os << format(".Lfunc_end_{}:\n", f->name);
         
-        os << format("\tpop rbx\n");
-        for (int i = 15; i >= 12; i--)
-            os << format("\tpop r{}\n", i);
+        for (int i = amt - 1; i >= 0; i--)
+            os << format("\tpop {}\n", hold[i]);
         
         os <<
         "\tmov rsp, rbp\n"

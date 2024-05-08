@@ -25,7 +25,8 @@ enum ir_type {
     I_NEQ,          // setne
     I_EQ,           // sete
     I_RAW,          // (raw assembly)
-    I_SGN,          // movsx
+    I_SPILL_LOAD,   // mov {}, [...]
+    I_SPILL_STORE,  // mov [{}], ...
 };
 
 // Note: register is a keyword
@@ -45,13 +46,17 @@ public:
     // the first place where the register comes into existence
     int first;
 
+    // for spilling
+    bool spilt;
+    var* dest;
+
     reg();
 };
 
 struct ir {
     ir_type ty;
     // operands of the instruction
-    reg *a0, *a1, *a2;
+    reg *a0, *a1;
     // for I_IMM, immediate value
     // for I_JMP, the number of label
     int imm;
@@ -65,9 +70,10 @@ struct ir {
     std::string name;
 
     ir(ir_type ty, int imm, reg* a0);
-    ir(ir_type ty, reg* a0=nullptr, reg* a1=nullptr, reg* a2=nullptr);
+    ir(ir_type ty, reg* a0=nullptr, reg* a1=nullptr);
     ir(ir_type ty, reg* a0, var* v);
     ir(ir_type ty, reg* a0, reg* a1, int sz);
+    ir(ir_type ty, std::string name, var* v);
     ir(std::string);
 };
 

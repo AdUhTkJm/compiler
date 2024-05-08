@@ -6,13 +6,13 @@ enum token_type {
     K_NUM,          // number literal
     K_PLUS,         // +
     K_MINUS,        // -
-    K_MUL,          // *
+    K_MUL,          // *; also used as type of pointers
     K_DIV,          // /
     K_MOD,          // %
     K_SEMICOLON,    // ;
     K_RET,          // return
-    K_LBRACKET,     // (
-    K_RBRACKET,     // )
+    K_LPARENS,      // (
+    K_RPARENS,      // )
     K_INT,          // int
     K_ASSIGN,       // =
     K_IDENT,        // identifier
@@ -42,12 +42,19 @@ enum token_type {
     K_CHAR,         // char
     K_VOID,         // void
     K_AND,          // &
+    K_LBRACKET,     // [; also used as type of arrays
+    K_RBRACKET,     // ]
+    K_CONST,        // const
+    K_STR,          // "a string"
+    K_DOTS,         // ...
 };
 
 struct token {
     token_type ty;
     int val;
 
+    // For K_IDENT, this is identifier
+    // For K_STR, this is the content of the string literal
     std::string ident;
 };
 
@@ -67,18 +74,16 @@ class tstream {
     int curr;
     int memory;
 public:
-    void tokenize(const std::string&);
+    void tokenize(std::string);
     void retreat() { curr--; }
     token peek() { return tokens[curr]; }
     token consume() { return tokens[curr++]; }
 
-    void save() { memory = curr; }
+    int save() { return memory = curr; }
+    void load(int x) { curr = x; }
     void load() { curr = memory; }
 
     void seteof() { tokens.push_back({ K_EOF }); }
-
-    // For debug uses.
-    void _print();
 };
 
 extern tstream tin;

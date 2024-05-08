@@ -20,21 +20,25 @@ std::map<node_type, ir_type> opmap {
 };
 
 ir::ir(ir_type ty, int imm, reg* a0):
-    ty(ty), imm(imm), a0(a0), a1(nullptr), a2(nullptr) {}
+    ty(ty), imm(imm), a0(a0), a1(nullptr) {}
 
-ir::ir(ir_type ty, reg* a0, reg* a1, reg* a2):
-    ty(ty), a0(a0), a1(a1), a2(a2) {}
+ir::ir(ir_type ty, reg* a0, reg* a1):
+    ty(ty), a0(a0), a1(a1) {}
 
 ir::ir(ir_type ty, reg* a0, var* v):
-    ty(ty), a0(a0), v(v), a1(nullptr), a2(nullptr) {}
+    ty(ty), a0(a0), v(v), a1(nullptr) {}
 
 ir::ir(ir_type ty, reg* a0, reg* a1, int sz):
-    ty(ty), a0(a0), a1(a1), a2(nullptr), sz(sz) {}
+    ty(ty), a0(a0), a1(a1), sz(sz) {}
 
-ir::ir(std::string str): ty(I_RAW), name(str) {}
+ir::ir(ir_type ty, std::string name, var* v):
+    ty(ty), name(name), v(v), a0(nullptr), a1(nullptr) {}
+
+ir::ir(std::string str):
+    ty(I_RAW), name(str), a0(nullptr), a1(nullptr) {}
 
 int reg::cnt = 0;
-reg::reg(): ind(cnt++) {}
+reg::reg(): ind(cnt++), spilt(false), first(0), last(0), real(0) {}
 
 
 // The result of generate()
@@ -89,23 +93,15 @@ reg* gen_expr(node* x) {
     case N_MUL:
     case N_DIV:
     case N_MOD:
-        a0 = gen_expr(x->lhs);
-        a1 = gen_expr(x->rhs);
-        
-        push(opmap[x->ty], a0, a1);
-        return a0;
     case N_EQ:
     case N_LEQ:
     case N_GEQ:
     case N_NEQ:
     case N_GE:
     case N_LE:
-        // Sign extension is needed for, eg., loading 4 bytes into r10.
-        a0 = new reg;
-        a1 = new reg;
+        a0 = gen_expr(x->lhs);
+        a1 = gen_expr(x->rhs);
         
-        push(I_SGN, a0, gen_expr(x->lhs), x->cty->sz);
-        push(I_SGN, a1, gen_expr(x->rhs), x->cty->sz);
         push(opmap[x->ty], a0, a1);
         return a0;
     case N_VARREF:
@@ -142,51 +138,57 @@ reg* gen_expr(node* x) {
         for (auto m : x->nodes)
             i->params.push_back(gen_expr(m));
         i->name = x->name;
+        i->imm = x->val;
         res.push_back(i);
         return a0;
     }
-    case N_IF:
+    case N_IF: {
+        // Record current count
+        // in case x->lhs contains another if clause
+        int my_cnt = if_cnt++;
         a0 = gen_expr(x->cond);
-        push(I_IF, if_cnt, a0);
+        push(I_IF, my_cnt, a0);
 
         gen_expr(x->lhs);
 
         if (x->rhs) {
-            push(format("jmp .Lif_{}_end", if_cnt));
-            push(format(".Lif_{}_unhit:", if_cnt));
+            push(format("jmp .Lif_{}_end", my_cnt));
+            push(format(".Lif_{}_unhit:", my_cnt));
             gen_expr(x->rhs);
-            push(format(".Lif_{}_end:", if_cnt));
+            push(format(".Lif_{}_end:", my_cnt));
         } else {
-            push(format(".Lif_{}_unhit:", if_cnt));
+            push(format(".Lif_{}_unhit:", my_cnt));
         }
-        
-        if_cnt++;
         return a0;
-    case N_WHILE:
-        push(format(".Lwhile_{}_begin:", while_cnt));
+    }
+    case N_WHILE: {
+        int my_cnt = while_cnt++;
+
+        push(format(".Lwhile_{}_begin:", my_cnt));
         a0 = gen_expr(x->cond);
-        push(I_WHILE, while_cnt, a0);
+        push(I_WHILE, my_cnt, a0);
         gen_expr(x->lhs);
-        push(format("jmp .Lwhile_{}_begin", while_cnt));
-        push(format(".Lwhile_{}_end:", while_cnt));
+        push(format("jmp .Lwhile_{}_begin", my_cnt));
+        push(format(".Lwhile_{}_end:", my_cnt));
         
-        while_cnt++;
         return a0;
-    case N_FOR:
+    }
+    case N_FOR: {
+        int my_cnt = for_cnt++;
+
         if (x->init)
             gen_expr(x->init);
 
-        push(format(".Lfor_{}_begin:", for_cnt));
+        push(format(".Lfor_{}_begin:", my_cnt));
         a0 = gen_expr(x->cond);
-        push(I_FOR, for_cnt, a0);
+        push(I_FOR, my_cnt, a0);
         gen_expr(x->lhs);
         if (x->step)
             gen_expr(x->step);
-        push(format("jmp .Lfor_{}_begin", for_cnt));
-        push(format(".Lfor_{}_end:", for_cnt));
-
-        for_cnt++;
+        push(format("jmp .Lfor_{}_begin", my_cnt));
+        push(format(".Lfor_{}_end:", my_cnt));
         return a0;
+    }
     default:
         throw x->ty;
     }

@@ -1,11 +1,9 @@
 *.sh
 unused
 .vscode/
-assem.s
-assem.o
-test.c
-helper.c
-helper.o
+*.s
+*.o
+/*.c
 com
 tmp
 .gitignore
